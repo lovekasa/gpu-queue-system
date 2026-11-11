@@ -1,0 +1,30 @@
+# Secrets and local environment files
+.env
+.env.*
+!.env.example
+!.env.sample
+*.pem
+*.key
+
+# Dependencies and generated build output
+node_modules/
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+dist/
+build/
+coverage/
+*.log
+
+# OS and editor local state
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+
+# Keep BMAD skills, outputs, decisions, and sprint history tracked.
+
+# Personal BMAD installer answers
+_bmad/config.user.toml
