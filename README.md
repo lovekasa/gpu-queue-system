@@ -4,7 +4,17 @@
 
 ## 当前状态
 
-已完成 BMAD Method 6.12.1 环境安装和项目初始化。尚未完成需求分析、产品简报或代码实现；当前没有可运行的业务系统。
+已完成 BMAD Method 6.12.1 环境安装、项目初始化和多轮业务需求确认；产品简报与 PRD 均于 2026-11-18 完成文档收尾。PRD 已定稿，可供后续 UX、架构及史诗/故事拆分使用；尚未实现业务代码，当前没有可运行的业务系统。
+
+产品简报：[brief.md](_bmad-output/planning-artifacts/briefs/brief-gpu-queue-system-2026-11-11/brief.md)。补充需求与课程要求见同目录 `addendum.md`。
+
+PRD：[prd.md](_bmad-output/planning-artifacts/prds/prd-gpu-queue-system-2026-11-18/prd.md)，包含18条功能需求、46条验收标准、3条可测试非功能需求；D039补充续期后短时判断，审阅收尾及修订说明见同目录 `closeout.md`。
+
+架构：[ARCHITECTURE-SPINE.md](_bmad-output/planning-artifacts/architecture/architecture-gpu-queue-system-2026-11-18/ARCHITECTURE-SPINE.md)，配套 `ADR.md` 与 `verification-plan.md`。采用 Vue 3、Spring Boot 3.3.13、Java 21、本地 MySQL 的模块化单体；以固定 GPU 行锁、唯一当前名额及独立名额 ID 处理分配与事件一致性。
+
+配套规格：[SPEC.md](_bmad-output/specs/spec-gpu-queue-system/SPEC.md)，含8项能力；其 frontmatter 中4份 adopted companions 均为必读契约，保留原FR/AC/NFR/AD编号。
+
+史诗与故事：[epics.md](_bmad-output/planning-artifacts/epics.md)。3个史诗共20条故事已获批，最终规格验证已通过，故事清单已定稿。课程实验和试用评价优先使用现有文档与简单表格。
 
 ## 已确认的范围
 
@@ -13,9 +23,9 @@
 - 分配记录不等于硬件真实运行状态。
 - 课程实验 A 保留，实验 B 不做。
 
-## 待确认的需求
+## 需求基线与后续事项
 
-资源分配单位、队列排序、公平性与配额、申请时长、开始确认、超时未归还、管理员干预，以及实际用户和现行排队方式。上述内容均需经需求分析确认。
+已确认 30 名成员、10 张 4090、按指定 GPU 排队及部分分配、超过 3 天的等待提升、按卡独立计时、管理员干预、续期和站内通知。PRD 已细化排序、重复同卡、归还和到期规则；账号由管理员创建，公开队列显示姓名与顺序，调序仅对当前等待项有效。公平性观察基线与实验 A 指标定义、人员分工，在试用评价和实验设计前分别复核，见 PRD Q09–Q10。
 
 ## 课程约束
 
@@ -30,7 +40,7 @@
 
 ## 下一步
 
-在 Codex 中打开项目根目录，调用 bmad-help，进入产品简报工作流。先确认真实需求，再生成产品简报与 PRD；当前不开始代码实现。
+实施前整理项目上下文，再进行冲刺规划。工程创建前核实并锁定精确依赖与数据库服务端版本。当前不开始代码实现。
 
 ## 团队与 AI 使用
 
