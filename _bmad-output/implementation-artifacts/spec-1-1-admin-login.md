@@ -2,12 +2,13 @@
 title: 'Story 1.1 初始化应用与受控管理员登录'
 type: feature
 created: '2026-11-18'
+updated: '2026-11-19'
 status: draft
 route: dispatch
+review_loop_iteration: 0
 epic: 1
 story: '1.1'
 story_key: 1-1-初始化应用并以受控管理员身份登录
-review_loop_iteration: 0
 context:
   - '{project-root}/AGENTS.md'
   - '{project-root}/_bmad-output/implementation-artifacts/epic-1-context.md'
@@ -17,60 +18,45 @@ context:
 
 ## Intent
 
-为管理员交付可重复初始化、登录和退出的最小应用，执行 epics.md Story 1.1 的全部七组验收。仅初始化账号与认证基础，后续故事逐项接续。
+在本机完成初始管理员初始化、登录、查看本人身份和退出。采用 Vue 3、Spring Boot 3.3.13、Java 21 和内嵌 H2 文件库。交付账号所需结构，成员建号、GPU 和名额功能留给后续故事。
 
 ## Boundaries & Constraints
 
-保持 Java21、Boot3.3.13、Vue3、本地MySQL；工程创建前核实服务端版本，官方create-vue生成前端并锁定依赖。dev/test/demo数据库及账号隔离，应用不得自动改表。受控初始化不公开为HTTP接口，不覆盖已有管理员；Session、CSRF、HttpOnly及正式Secure Cookie必需。不得预建GPU/申请/名额表，不记录凭据。
-
-## I/O & Edge-Case Matrix
-
-| 场景 | 输入/状态 | 结果 | 错误处理 |
-| --- | --- | --- | --- |
-| 初始化 | 受控命令、有效配置 | 新管理员安全散列落库 | 重复不覆盖、不增权；失败退出非零 |
-| 登录 | 正确凭据及CSRF | Session、本人身份首页 | 错误凭据不泄露账号信息 |
-| 直接请求 | 未认证或缺CSRF | 401/403，无业务变化 | 合法请求仍可成功 |
-| 退出 | 有效Session及CSRF | 会话失效，回登录页 | 原Session不能访问 |
-| 迁移/连接 | 无法连接或迁移失败 | 明确失败 | 不自动改表或假成功 |
+开发与演示数据目录隔离，测试使用独立临时文件库。启动脚本先运行版本化迁移。初始管理员通过本地命令创建，口令安全散列，重复初始化不覆盖账号或增权。本机同源 HTTP 保留 Session、HttpOnly Cookie 和 CSRF。凭据与数据库文件不入 Git。
 
 </frozen-after-approval>
 
 ## Code Map
 
-- `AGENTS.md`：跨故事约束；`HANDOFF.md`：三人顺序接续入口。
-- `_bmad-output/planning-artifacts/epics.md`：Story1.1七组验收权威；当前没有业务代码可复用。
-- `_bmad-output/implementation-artifacts/sprint-status.yaml`：状态跟踪，未验收不得done。
+`epics.md` 的 Story 1.1 定义七组验收，`epic-1-context.md` 提供实施约束。仓库尚无业务工程。
 
 ## Tasks & Acceptance
 
 **Execution:**
 
-- [ ] `docs/development/environment.md`：记录实际版本、MySQL只读核验及依赖锁定；当前Java21.0.2/Maven3.9.6/Node24.18.0/npm11.16.0/MySQL服务端8.0.34已实测。
-- [ ] `backend/pom.xml`、`frontend/package.json`、`frontend/package-lock.json`：最小Boot工程和create-vue3.24.0脚手架；锁定解析后的依赖。
-- [ ] `backend/src/main/resources/db/migration/V1__accounts.sql`、`backend/src/main/java/org/lab/gpuqueue/identity/AccountRepository.java、AdminInitializer.java`：JdbcTemplate持久化、Flyway显式迁移及受控管理员命令，仅账号结构。
-- [ ] `backend/src/main/java/org/lab/gpuqueue/security/SecurityConfiguration.java`、`backend/src/main/resources/application.yml`：认证、CSRF、Session、配置分离及失败处理。
-- [ ] `frontend/src/App.vue`、`frontend/src/api.ts`、`frontend/vite.config.ts`：登录/身份首页/退出和错误反馈，同源代理。
-- [ ] `backend/src/test/java/org/lab/gpuqueue/AuthenticationIntegrationTest.java`、`frontend/src/App.spec.ts`及`docs/development/runbook.md`：独立MySQL验证、页面检查、启动/迁移/初始化说明。
-- [ ] `_bmad-output/implementation-artifacts/evidence/story-1.1.md`、`HANDOFF.md`：逐条记录七组验收、命令及结果，审阅后同步冲刺状态。
+- [ ] 创建 `backend/pom.xml` 与 `frontend/package.json`，使用官方 create-vue 并提交前端锁文件。
+- [ ] 在 `backend/src/main/resources/db/migration/V1__accounts.sql` 建必需账号结构。用 Spring JDBC 保存账号，本地初始化模式从交互输入读取口令，执行期间不监听 HTTP。
+- [ ] 在 `backend/src/main/java/org/lab/gpuqueue/security/SecurityConfiguration.java` 配置认证、Session 和 CSRF。在 `frontend/src/App.vue` 和 `frontend/src/api.ts` 实现受保护首页、登录、退出及错误反馈。
+- [ ] 在 `docs/development/runbook.md` 记录版本、数据目录、Flyway 显式迁移、本地初始化及启动步骤。在 `_bmad-output/implementation-artifacts/evidence/story-1.1.md` 留存实际验收证据。
 
 **Acceptance Criteria:**
 
-- Given空工程，When初始化，Then精确版本/锁文件可复核且MySQL服务端有实测证据。
-- Given隔离数据库，When显式迁移与重复初始化，Then结构可重复建立、管理员不被覆盖，失败不假成功。
-- Given登录页，When合法登录/退出及非法直接请求，ThenSession/CSRF/权限与七组原故事验收一致。
-- Given独立测试库，When执行验收，Then保存可复核证据，且不依赖后续故事。
+1. Given 新克隆，When 创建工程，Then 记录实际 Java、Maven、Node/npm 和已解析的 H2 版本，锁定 Vue、H2 及新增依赖。
+2. Given 各环境数据目录隔离，When 执行迁移和启动，Then 账号结构只迁移一次，记录实际 H2 文件位置，迁移或连接失败时不继续启动。
+3. Given 管理员尚未创建，When 本地初始化及重复执行，Then 创建一位初始管理员并安全散列口令，重复执行保留原账号与权限，网页和 API 不开放初始化。
+4. Given 已初始化管理员，When 以正确凭据登录，Then 经合法 CSRF 流程建立会话，身份首页显示本人，Session Cookie 为 HttpOnly。
+5. Given 未登录、密码错误或写入缺少有效 CSRF，When 调用对应入口，Then 按实际原因返回拒绝或错误且不泄露敏感信息，合法请求正常。
+6. Given 已登录，When 退出后复用原会话访问，Then 会话已失效，页面回到登录状态，日志不含口令或会话值。
+7. Given 独立 H2 临时文件库，When 按运行文档走完整流程，Then 记录实际命令与通过或失败的结果，不包含凭据，不依赖后续故事。
 
 ## Implementation Notes
+
+迁移通过独立步骤执行，初始化和服务模式使用同一数据目录配置。精确 H2 版本、数据库文件路径及运行命令在创建工程后记录。
 
 ## Spec Change Log
 
 ## Review Triage Log
 
-## Design Notes
-
-选择Spring JDBC便于后续显式行锁；Flyway由独立命令执行，应用启动禁用自动迁移。数据库连接信息从本地配置提供，不入库。已核实`gpu-queue`存在且无表，登录路径使用root管理账号；应用使用独立受限账号，dev/test/demo隔离库尚待创建，不在用户原库运行破坏性测试。三人不预分工，每次中断更新交接入口。
-
 ## Verification
 
-计划使用`mvn -f backend/pom.xml verify`及前端构建/测试脚本；命令须在工程实际生成后验证并补齐。独立MySQL未就绪时标记未执行，不用H2替代。
-
+2026-11-19 静态核对七组验收与故事清单，并在本机重新生成 BMAD Build 工作流。当前为待审草案，业务实现、启动和验收均未执行。

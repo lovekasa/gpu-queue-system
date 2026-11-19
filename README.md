@@ -4,17 +4,17 @@
 
 ## 当前状态
 
-已完成 BMAD Method 6.12.1 环境安装、项目初始化和多轮业务需求确认；产品简报与 PRD 均于 2026-11-18 完成文档收尾。PRD 已定稿，可供后续 UX、架构及史诗/故事拆分使用；尚未实现业务代码，当前没有可运行的业务系统。
+本地课程演示方案已确认，需求、架构和故事清单采用 H2。当前已有 BMAD Method 6.12.1 项目配置、规划和冲刺记录。Story 1.1「初始化应用并以受控管理员身份登录」处于草案，业务工程尚未创建。
 
 产品简报：[brief.md](_bmad-output/planning-artifacts/briefs/brief-gpu-queue-system-2026-11-11/brief.md)。补充需求与课程要求见同目录 `addendum.md`。
 
-PRD：[prd.md](_bmad-output/planning-artifacts/prds/prd-gpu-queue-system-2026-11-18/prd.md)，包含18条功能需求、46条验收标准、3条可测试非功能需求；D039补充续期后短时判断，审阅收尾及修订说明见同目录 `closeout.md`。
+产品需求见 [PRD](_bmad-output/planning-artifacts/prds/prd-gpu-queue-system-2026-11-18/prd.md)，包含 18 条功能需求、46 条验收标准和 3 条非功能需求。
 
-架构：[ARCHITECTURE-SPINE.md](_bmad-output/planning-artifacts/architecture/architecture-gpu-queue-system-2026-11-18/ARCHITECTURE-SPINE.md)，配套 `ADR.md` 与 `verification-plan.md`。采用 Vue 3、Spring Boot 3.3.13、Java 21、本地 MySQL 的模块化单体；以固定 GPU 行锁、唯一当前名额及独立名额 ID 处理分配与事件一致性。
+采用 Vue 3、Spring Boot 3.3.13、Java 21 和内嵌 H2 文件库。后端以单实例运行，名额服务使用普通事务、唯一当前映射和独立名额身份。详见 [架构](_bmad-output/planning-artifacts/architecture/architecture-gpu-queue-system-2026-11-18/ARCHITECTURE-SPINE.md)。
 
-配套规格：[SPEC.md](_bmad-output/specs/spec-gpu-queue-system/SPEC.md)，含8项能力；其 frontmatter 中4份 adopted companions 均为必读契约，保留原FR/AC/NFR/AD编号。
+[配套规格](_bmad-output/specs/spec-gpu-queue-system/SPEC.md) 含 8 项能力，frontmatter 列出的全部配套文档是开发依据。
 
-史诗与故事：[epics.md](_bmad-output/planning-artifacts/epics.md)。3个史诗共20条故事已获批，最终规格验证已通过，故事清单已定稿。课程实验和试用评价优先使用现有文档与简单表格。
+[正式故事清单](_bmad-output/planning-artifacts/epics.md) 包含 3 个史诗和 20 条故事。候选故事、审阅记录和此前的规格收尾保留作历史参考。
 
 ## 已确认的范围
 
@@ -40,7 +40,7 @@ PRD：[prd.md](_bmad-output/planning-artifacts/prds/prd-gpu-queue-system-2026-11
 
 ## 下一步
 
-实施前整理项目上下文，再进行冲刺规划。工程创建前核实并锁定精确依赖与数据库服务端版本。当前不开始代码实现。
+审阅 [Story 1.1 草案](_bmad-output/implementation-artifacts/spec-1-1-admin-login.md)，确认后创建工程并锁定实际依赖。接手和当前验证结果见 [HANDOFF.md](HANDOFF.md)。
 
 ## 团队与 AI 使用
 
@@ -48,4 +48,4 @@ PRD：[prd.md](_bmad-output/planning-artifacts/prds/prd-gpu-queue-system-2026-11
 
 ## 运行和测试
 
-待实现后补充准确的环境准备、启动、测试步骤和演示方式。
+本机 HTTP 演示使用独立 H2 数据目录。工程创建后补充准确的迁移、初始化、启动和验收步骤。验收按顺序操作并核对持久化结果。
