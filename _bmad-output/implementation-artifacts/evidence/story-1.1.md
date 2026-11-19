@@ -20,4 +20,8 @@
 | 6. 退出和原会话失效 | 已走查 Spring Security 退出及页面清理，待核对原会话。 |
 | 7. 新环境独立验收 | [运行手册](../../../docs/development/runbook.md) 已给出步骤，验收尚未执行。 |
 
-本轮未编译、构建、启动应用、运行数据库迁移、测试或 smoke 实验。以上为工具版本和源码检查结果。
+## 本机构建
+
+2026-11-19 21:12（Asia/Shanghai），在当前进程选用 Java 21.0.9 后，运行 `mvn.cmd -B -ntp -f backend/pom.xml '-Dmaven.test.skip=true' package`，结果为 `BUILD SUCCESS`，生成 `backend/target/gpu-queue.jar`。测试已跳过。当前为开发用后端 JAR，前端通过 Vite 运行。
+
+数据库迁移、应用启动、业务测试和 smoke 实验尚未执行。

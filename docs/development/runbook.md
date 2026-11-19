@@ -2,15 +2,19 @@
 
 ## 工具与依赖
 
-在仓库根目录使用 PowerShell。把 `JAVA_HOME` 指向 JDK 21，并让 Maven 使用同一 JDK。
+在仓库根目录使用 PowerShell。在当前终端设置 `JAVA_HOME`，将示例路径替换为本机的 JDK 21 目录。打包和启动都在这个终端执行。
 
 ```powershell
+$env:JAVA_HOME = 'C:\path\to\jdk-21'
+$env:Path = "$env:JAVA_HOME\bin;$env:Path"
 & "$env:JAVA_HOME/bin/java.exe" -version
 & "$env:JAVA_HOME/bin/javac.exe" -version
 mvn.cmd -version
 node.exe --version
 npm.cmd --version
 ```
+
+`mvn.cmd -version` 中的 Java 须为 21。出现“不支持发行版本 21”时，先切换 JDK 再重新打包。打包成功并生成 `backend/target/gpu-queue.jar` 后再运行启动脚本。
 
 | 项目 | 版本 |
 | --- | --- |

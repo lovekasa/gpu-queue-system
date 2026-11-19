@@ -13,7 +13,7 @@
 - D047、D048 已确认本地 H2 文件库及顺序验收。PRD、架构与 ADR、验证计划、epics.md、SPEC 及配套契约是现行依据。课程实验 A 仍待准备，候选故事与旧审阅记录留作历史。
 - Story 1.1 已实现。Epic 1 为 `in-progress`，Story 1.1 为 `review`，其余 19 条故事为 `backlog`。实现在 `codex/lightweight-demo` 的本地提交，基线为 `f84c4944eaaa9a893766e9ba926a48fbd0467d59`。本轮提交标识可用 `git log -1 -- HANDOFF.md` 查询。
 - 最小 Spring Boot 和 Vue 工程、H2 账号迁移、本地管理员初始化、登录、本人身份和退出均可在源码中走查。打包和本机启动步骤见 [运行手册](docs/development/runbook.md)。
-- 已核对工具版本、依赖锁和源码。实际迁移、应用启动和登录验收待执行，见 [Story 1.1 验证记录](_bmad-output/implementation-artifacts/evidence/story-1.1.md)。
+- 使用 Java 21.0.9 和 Maven 3.8.8 打包成功，本机已生成 `backend/target/gpu-queue.jar`。数据库迁移、应用启动及登录验收待执行，见 [Story 1.1 验证记录](_bmad-output/implementation-artifacts/evidence/story-1.1.md)。
 
 ## 下一步
 
@@ -28,3 +28,4 @@
 | 2026-11-18 | D047 形成轻量本地演示提案，提交 `b7bae04cdd65f3b559ed451595d59a2716168bdb`。 |
 | 2026-11-19 | D048 确认 H2，提交范围为规格和 Story 1.1 草案。基于 `b7bae04cdd65f3b559ed451595d59a2716168bdb` 在 `codex/lightweight-demo` 接续。远端读取和推送权限核对成功。BMAD 渲染在沙箱临时目录报 Windows 650，改在普通临时目录执行成功。 |
 | 2026-11-19 | 用户确认 Story 1.1，实现账号迁移、受控初始化及登录会话，完成静态检查。运行验收待执行。 |
+| 2026-11-19 | 用户遇到编译器不支持 Java 21。用本机 Java 21.0.9 跳过测试打包成功，补充运行手册的 PowerShell 配置。 |
