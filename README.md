@@ -4,7 +4,7 @@
 
 ## 当前状态
 
-本地课程演示方案已确认，需求、架构和故事清单采用 H2。当前已有 BMAD Method 6.12.1 项目配置、规划和冲刺记录。Story 1.1「初始化应用并以受控管理员身份登录」处于草案，业务工程尚未创建。
+本地课程演示采用 H2 文件库。Story 1.1「初始化应用并以受控管理员身份登录」的前后端工程及启动脚本见 [运行手册](docs/development/runbook.md)。当前故事状态及验证结果见 [HANDOFF.md](HANDOFF.md)。
 
 产品简报：[brief.md](_bmad-output/planning-artifacts/briefs/brief-gpu-queue-system-2026-11-11/brief.md)。补充需求与课程要求见同目录 `addendum.md`。
 
@@ -38,14 +38,10 @@
 - `_bmad-output/`：规划及实施产物，须纳入版本控制。
 - `decision-log.md`：真实决策记录。
 
-## 下一步
-
-审阅 [Story 1.1 草案](_bmad-output/implementation-artifacts/spec-1-1-admin-login.md)，确认后创建工程并锁定实际依赖。接手和当前验证结果见 [HANDOFF.md](HANDOFF.md)。
-
 ## 团队与 AI 使用
 
 成员和分工：待填写。使用 Codex 与 BMAD 辅助需求分析、文档和后续开发；人工负责需求确认、方案取舍、审查与验证。后续按实际使用情况补充说明，不虚构访谈、实验或测试结果。
 
 ## 运行和测试
 
-本机 HTTP 演示使用独立 H2 数据目录。工程创建后补充准确的迁移、初始化、启动和验收步骤。验收按顺序操作并核对持久化结果。
+开发、演示和验收各用独立的 H2 数据目录。迁移、初始化、启动和顺序验收的命令见 [运行手册](docs/development/runbook.md)。
