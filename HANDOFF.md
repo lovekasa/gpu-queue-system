@@ -6,20 +6,19 @@
 
 1. 读 AGENTS.md、本文件和 git status，确认他人改动。
 2. 查看 _bmad-output/implementation-artifacts/sprint-status.yaml 和当前故事，再按规格及其配套文档执行。
-3. 接手结束时更新本文件、当前故事及冲刺状态。记录实际验证与遗留事项。提交标识可用 `git log -1 -- HANDOFF.md` 查询。
+3. 接手结束时更新本文件、当前故事及冲刺状态。记录实际验证、遗留事项与提交情况。
 
 ## 当前进度
 
 - D047、D048 已确认本地 H2 文件库及顺序验收。PRD、架构与 ADR、验证计划、epics.md、SPEC 及配套契约是现行依据。课程实验 A 仍待准备，候选故事与旧审阅记录留作历史。
-- 冲刺跟踪包含 3 个史诗、20 条故事，全部为 `backlog`。Story 1.1 的实现 [草案](_bmad-output/implementation-artifacts/spec-1-1-admin-login.md) 已就位，等待审阅确认。尚无前端、后端、数据库迁移或业务验收结果。
-- 本机 BMAD Build 已用 uv 0.13.9 生成工作流。快照在被忽略的 _bmad/render/ 下，每台机器按技能入口自行生成。
-- 规格的静态核查结果见 [实施就绪核查](_bmad-output/planning-artifacts/implementation-readiness.md)。本轮未运行应用、迁移、测试或 smoke 实验。
+- Story 1.1 已实现。Epic 1 为 `in-progress`，Story 1.1 为 `review`，其余 19 条故事为 `backlog`。实现在 `codex/lightweight-demo` 的本地提交，基线为 `f84c4944eaaa9a893766e9ba926a48fbd0467d59`。本轮提交标识可用 `git log -1 -- HANDOFF.md` 查询。
+- 最小 Spring Boot 和 Vue 工程、H2 账号迁移、本地管理员初始化、登录、本人身份和退出均可在源码中走查。打包和本机启动步骤见 [运行手册](docs/development/runbook.md)。
+- 已核对工具版本、依赖锁和源码。实际迁移、应用启动和登录验收待执行，见 [Story 1.1 验证记录](_bmad-output/implementation-artifacts/evidence/story-1.1.md)。
 
 ## 下一步
 
-1. 审阅 Story 1.1 草案，批准后沿 `bmad-build` 继续。
-2. 核实实际 Java、Maven、Node/npm 及 H2 和前端依赖版本，记录本机数据文件位置，建立版本化迁移及受控管理员初始化。先满足 1.1 七组验收，再推进成员建号。
-3. 本地只用隔离数据。在选定 X/Y 故事实现前完成实验 A 准备。
+1. 按运行手册在独立临时 H2 文件库执行 Story 1.1 验收，记录实际结果后再更新故事状态。本机默认 Java 为 17，运行前需在当前 PowerShell 会话选用 JDK 21。
+2. Story 1.1 验收后，按冲刺顺序接续成员建号。在选定 X/Y 故事实现前完成实验 A 准备。
 
 ## 交接历史
 
@@ -28,3 +27,4 @@
 | 2026-11-18 | 建立三人接续入口和冲刺跟踪，形成 Story 1.1 首稿；完成当时环境及 MySQL 只读核对。实施尚未开始。 |
 | 2026-11-18 | D047 形成轻量本地演示提案，提交 `b7bae04cdd65f3b559ed451595d59a2716168bdb`。 |
 | 2026-11-19 | D048 确认 H2，提交范围为规格和 Story 1.1 草案。基于 `b7bae04cdd65f3b559ed451595d59a2716168bdb` 在 `codex/lightweight-demo` 接续。远端读取和推送权限核对成功。BMAD 渲染在沙箱临时目录报 Windows 650，改在普通临时目录执行成功。 |
+| 2026-11-19 | 用户确认 Story 1.1，实现账号迁移、受控初始化及登录会话，完成静态检查。运行验收待执行。 |

@@ -1,0 +1,114 @@
+:root {
+  font-family: system-ui, sans-serif;
+  color: #19273b;
+  background: #eef2f6;
+  line-height: 1.5;
+}
+
+body {
+  margin: 0;
+}
+
+#app {
+  box-sizing: border-box;
+  display: grid;
+  place-items: center;
+  min-height: 100vh;
+  padding: 1.25rem;
+}
+
+.panel {
+  box-sizing: border-box;
+  width: min(100%, 26rem);
+  padding: clamp(1.25rem, 5vw, 2.25rem);
+  border: 1px solid #d4dde7;
+  border-radius: 1rem;
+  background: #fff;
+  box-shadow: 0 16px 48px #223a5512;
+}
+
+h1 {
+  margin: 0 0 1.5rem;
+  font-size: 1.65rem;
+  line-height: 1.2;
+}
+
+p,
+dl,
+dd {
+  margin: 0;
+}
+
+fieldset {
+  display: grid;
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  gap: 0.5rem;
+}
+
+label {
+  font-weight: 650;
+}
+
+input,
+button {
+  box-sizing: border-box;
+  min-width: 0;
+  padding: 0.65rem 0.8rem;
+  border-radius: 0.5rem;
+  font: inherit;
+}
+
+input {
+  border: 1px solid #9bafc4;
+  margin-bottom: 0.65rem;
+  color: inherit;
+  background: #fff;
+}
+
+button {
+  border: 0;
+  color: #fff;
+  background: #2053a0;
+  font-weight: 650;
+  cursor: pointer;
+}
+
+button:hover:enabled {
+  background: #193f79;
+}
+
+button:disabled {
+  opacity: 0.65;
+  cursor: wait;
+}
+
+:focus-visible {
+  outline: 2px solid #2053a0;
+  outline-offset: 2px;
+}
+
+.actions {
+  display: grid;
+  gap: 1.25rem;
+}
+
+dl {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 0.5rem 1rem;
+}
+
+dt {
+  color: #486076;
+}
+
+dd {
+  overflow-wrap: anywhere;
+}
+
+.error {
+  color: #9f2026;
+}
