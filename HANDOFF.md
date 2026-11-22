@@ -13,10 +13,13 @@
 - D047、D048 已确认本地 H2 文件库及顺序验收。PRD、架构与 ADR、验证计划、epics.md、SPEC 及配套契约是现行依据。课程实验 A 仍待准备，候选故事与旧审阅记录留作历史。
 - Story 1.1 已通过 macOS 构建、独立 H2 临时库、HTTP 和 Safari 验收，已标记 `done`。Epic 1 为 `in-progress`。实现已由 PR #2 合入 `main`。
 - 初始管理员创建、登录及退出、CSRF 拒绝、重复初始化和迁移失败均有 [运行证据](_bmad-output/implementation-artifacts/evidence/story-1.1.md)。[运行手册](docs/development/runbook.md) 已补充 macOS 复现步骤。
+- Story 1.2 的管理员建号表单与 API 已实现，状态为 `review`。六组验收已通过，见 [运行证据](_bmad-output/implementation-artifacts/evidence/story-1.2.md)。V1 账号结构与原登录入口继续使用。
 
 ## 下一步
 
-1. 按冲刺顺序接续 Story 1.2 管理员创建成员账号。
+开发分支为 `codex/story-1-1-acceptance-and-1-2`。首次尝试推送时，本机缺少可用的 GitHub HTTPS 凭据，SSH 也未连通。远端状态以 `git ls-remote` 为准。
+
+1. 团队审阅 Story 1.2，收尾后接续 Story 1.3 指定 GPU 与使用约定。
 2. 在选定 X/Y 故事实现前完成实验 A 准备。
 
 ## 交接历史
@@ -29,3 +32,4 @@
 | 2026-11-19 | 用户确认 Story 1.1，实现账号迁移、受控初始化及登录会话，完成静态检查。运行验收待执行。 |
 | 2026-11-19 | 用户遇到编译器不支持 Java 21。用本机 Java 21.0.9 跳过测试打包成功，补充运行手册的 PowerShell 配置。 |
 | 2026-11-22 | 在 macOS 完成 Story 1.1 七组运行验收，更新证据、冲刺状态和 macOS 运行手册。 |
+| 2026-11-22 | 实现 Story 1.2，完成 HTTP、H2 写入失败与 Safari 验收，同步冲刺状态为审阅。 |

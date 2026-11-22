@@ -26,6 +26,18 @@ public class AccountRepository {
                 .optional();
     }
 
+    void createMember(UUID id, String loginName, String displayName, String passwordHash) {
+        jdbc.sql("""
+                INSERT INTO accounts (id, login_name, display_name, password_hash, role)
+                VALUES (:id, :loginName, :displayName, :passwordHash, 'MEMBER')
+                """)
+                .param("id", id)
+                .param("loginName", loginName)
+                .param("displayName", displayName)
+                .param("passwordHash", passwordHash)
+                .update();
+    }
+
     boolean initialAdministratorExists() {
         return jdbc.sql("SELECT EXISTS (SELECT 1 FROM accounts WHERE role = 'ADMIN')")
                 .query(Boolean.class)

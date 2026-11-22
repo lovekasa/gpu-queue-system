@@ -37,7 +37,7 @@ story_location: _bmad-output/implementation-artifacts
 development_status:
   epic-1: in-progress
   1-1-初始化应用并以受控管理员身份登录: done
-  1-2-管理员创建成员账号: backlog
+  1-2-管理员创建成员账号: review
   1-3-成员查看指定-gpu-与使用约定: backlog
   epic-1-retrospective: optional
 
