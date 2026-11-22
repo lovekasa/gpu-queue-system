@@ -5,13 +5,18 @@ export interface Identity {
   role: 'ADMIN' | 'MEMBER'
 }
 
+export interface FieldError {
+  field: 'loginName' | 'displayName' | 'password'
+  message: string
+}
+
 interface Csrf {
   headerName: string
   token: string
 }
 
 export class ApiError extends Error {
-  constructor(readonly status: number) {
+  constructor(readonly status: number, readonly fieldError?: FieldError) {
     super(`HTTP ${status}`)
   }
 }
@@ -19,15 +24,18 @@ export class ApiError extends Error {
 async function request(path: string, options?: RequestInit): Promise<Response> {
   const response = await fetch(`/api/${path}`, options)
   if (!response.ok) {
-    throw new ApiError(response.status)
+    const isFieldError = (response.status === 400 || response.status === 409)
+      && response.headers.get('content-type')?.includes('application/json')
+    const error = isFieldError ? await response.json().catch(() => undefined) : undefined
+    throw new ApiError(response.status, error)
   }
   return response
 }
 
-async function post(path: string, body: URLSearchParams | null = null): Promise<void> {
+async function post(path: string, body: URLSearchParams | null = null): Promise<Response> {
   const response = await request('csrf')
   const csrf: Csrf = await response.json()
-  await request(path, { method: 'POST', headers: { [csrf.headerName]: csrf.token }, body })
+  return request(path, { method: 'POST', headers: { [csrf.headerName]: csrf.token }, body })
 }
 
 export async function getIdentity(): Promise<Identity> {
@@ -35,10 +43,15 @@ export async function getIdentity(): Promise<Identity> {
   return response.json()
 }
 
-export function logIn(username: string, password: string): Promise<void> {
-  return post('login', new URLSearchParams({ username, password }))
+export async function logIn(username: string, password: string): Promise<void> {
+  await post('login', new URLSearchParams({ username, password }))
 }
 
-export function logOut(): Promise<void> {
-  return post('logout')
+export async function logOut(): Promise<void> {
+  await post('logout')
+}
+
+export async function createMember(loginName: string, displayName: string, password: string): Promise<Identity> {
+  const response = await post('admin/members', new URLSearchParams({ loginName, displayName, password }))
+  return response.json()
 }

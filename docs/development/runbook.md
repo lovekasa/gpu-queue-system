@@ -65,6 +65,27 @@ mvn.cmd -f backend/pom.xml clean package
 
 访问 `http://127.0.0.1:8080/`。Spring Boot JAR 同时提供构建后的页面和 API。一次启动使用一个数据目录和一个后端实例。
 
+## macOS 启动
+
+在仓库根目录使用 zsh。将 `JAVA_HOME` 设置为本机 JDK 21 路径，并确保 Maven 与符合 `frontend/package.json` 的 Node.js、npm 在 `PATH` 中。
+
+```zsh
+export JAVA_HOME="/path/to/jdk-21/Contents/Home"
+export PATH="$JAVA_HOME/bin:$PATH"
+npm --prefix frontend ci
+npm --prefix frontend run build
+mvn -f backend/pom.xml package
+data_dir="$PWD/.local-data/dev"
+mkdir -p "$data_dir"
+java -jar backend/target/gpu-queue.jar migrate "$data_dir" &&
+  java -jar backend/target/gpu-queue.jar init-admin "$data_dir" &&
+  java -jar backend/target/gpu-queue.jar serve "$data_dir"
+```
+
+访问 `http://127.0.0.1:8080/`。开发时可另开终端运行 `npm --prefix frontend run dev`，通过 `http://127.0.0.1:5173/` 访问 Vite。演示时将数据目录换成 `.local-data/demo`。
+
+执行下方验收时，在当前交互终端用 `data_dir=$(mktemp -d "${TMPDIR:-/tmp}/gpu-queue-test-XXXXXXXX")` 建立独立目录。使用同一目录依次运行 `migrate` 两次、`init-admin` 两次和 `serve`。迁移失败用例另建临时目录，创建名为 `gpu-queue.mv.db` 的子目录，再用 `migrate && serve` 串联验证非零退出与端口不监听。
+
 ## Story 1.1 验收步骤
 
 生成包含前端页面的 JAR 后，为这轮验收生成一个 GUID。迁移、初始化和启动复用同一个 GUID，各轮验收分别使用新 GUID。

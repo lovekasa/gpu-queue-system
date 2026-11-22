@@ -2,8 +2,8 @@
 title: 'Story 1.1 初始化应用与受控管理员登录'
 type: feature
 created: '2026-11-18'
-updated: '2026-11-19'
-status: in-review
+updated: '2026-11-22'
+status: done
 baseline_commit: f84c4944eaaa9a893766e9ba926a48fbd0467d59
 route: dispatch
 review_loop_iteration: 0
@@ -39,7 +39,7 @@ context:
 - [x] 在 `backend/src/main/resources/db/migration/V1__accounts.sql` 编写账号迁移。用 Spring JDBC 保存账号，本地初始化模式从交互输入读取口令，执行期间不监听 HTTP。
 - [x] 在 `backend/src/main/java/org/lab/gpuqueue/security/SecurityConfiguration.java` 配置认证、Session 和 CSRF。在 `frontend/src/App.vue` 和 `frontend/src/api.ts` 实现受保护首页、登录、退出及错误反馈。
 - [x] 在 `docs/development/runbook.md` 记录版本、数据目录、Flyway 显式迁移、本地初始化及启动步骤。
-- [ ] 运行验收后，在 [Story 1.1 证据](evidence/story-1.1.md) 补充实际结果。
+- [x] 运行验收后，在 [Story 1.1 证据](evidence/story-1.1.md) 补充实际结果。
 
 **Acceptance Criteria:**
 
@@ -85,3 +85,5 @@ context:
 ## Verification
 
 2026-11-19 用户确认 Story 1.1 并授权实现。已核对工具版本、依赖锁、启动脚本语法和前后端源码。后续使用 Java 21.0.9 跳过测试打包成功，见 [验证记录](evidence/story-1.1.md)。迁移、启动及业务验收待执行。
+
+2026-11-22 在 macOS 独立临时 H2 库完成七组运行验收，包含 Safari 页面、会话隔离、重复初始化和迁移失败检查。结果见 [验收证据](evidence/story-1.1.md)。
