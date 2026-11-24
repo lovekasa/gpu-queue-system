@@ -1,6 +1,6 @@
 # 开发交接入口
 
-更新时间为 2026-11-22（Asia/Shanghai）。三人顺序接续，不预设固定人员分工。
+更新时间为 2026-11-24（Asia/Shanghai）。三人顺序接续，不预设固定人员分工。
 
 ## 接手顺序
 
@@ -13,13 +13,13 @@
 - D047、D048 已确认本地 H2 文件库及顺序验收。PRD、架构与 ADR、验证计划、epics.md、SPEC 及配套契约是现行依据。课程实验 A 仍待准备，候选故事与旧审阅记录留作历史。
 - Story 1.1 已通过 macOS 构建、独立 H2 临时库、HTTP 和 Safari 验收，已标记 `done`。Epic 1 为 `in-progress`。实现已由 PR #2 合入 `main`。
 - 初始管理员创建、登录及退出、CSRF 拒绝、重复初始化和迁移失败均有 [运行证据](_bmad-output/implementation-artifacts/evidence/story-1.1.md)。[运行手册](docs/development/runbook.md) 已补充 macOS 复现步骤。
-- Story 1.2 的管理员建号表单与 API 已实现，状态为 `review`。六组验收已通过，见 [运行证据](_bmad-output/implementation-artifacts/evidence/story-1.2.md)。V1 账号结构与原登录入口继续使用。
+- Story 1.2 已验收并标记 `done`。本轮重新构建并通过六组 HTTP 与数据库复核，页面采用 2026-11-22 的 Safari 记录。见 [运行证据](_bmad-output/implementation-artifacts/evidence/story-1.2.md)。
 
 ## 下一步
 
-开发分支为 `codex/story-1-1-acceptance-and-1-2`。首次尝试推送时，本机缺少可用的 GitHub HTTPS 凭据，SSH 也未连通。远端状态以 `git ls-remote` 为准。
+开发分支为 `codex/story-1-1-acceptance-and-1-2`。本轮验收文档更新留在本地，待提交并推送。
 
-1. 团队审阅 Story 1.2，收尾后接续 Story 1.3 指定 GPU 与使用约定。
+1. 提交并推送 Story 1.2 的验收更新，再接续 Story 1.3 指定 GPU 与使用约定。
 2. 在选定 X/Y 故事实现前完成实验 A 准备。
 
 ## 交接历史
@@ -33,3 +33,4 @@
 | 2026-11-19 | 用户遇到编译器不支持 Java 21。用本机 Java 21.0.9 跳过测试打包成功，补充运行手册的 PowerShell 配置。 |
 | 2026-11-22 | 在 macOS 完成 Story 1.1 七组运行验收，更新证据、冲刺状态和 macOS 运行手册。 |
 | 2026-11-22 | 实现 Story 1.2，完成 HTTP、H2 写入失败与 Safari 验收，同步冲刺状态为审阅。 |
+| 2026-11-24 | 按 Story 1.1 流程重新构建 JAR，在独立 H2 库通过 Story 1.2 的六组复核，结合已有 Safari 证据标记完成。 |
