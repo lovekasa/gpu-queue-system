@@ -31,7 +31,7 @@ public class SecurityConfiguration {
         return http
                 .authorizeHttpRequests(auth -> auth
                         .requestMatchers(HttpMethod.GET, "/api/csrf").permitAll()
-                        .requestMatchers(HttpMethod.GET, "/api/me").hasAnyRole("ADMIN", "MEMBER")
+                        .requestMatchers(HttpMethod.GET, "/api/me", "/api/gpus").hasAnyRole("ADMIN", "MEMBER")
                         .requestMatchers(HttpMethod.POST, "/api/admin/members").hasRole("ADMIN")
                         .requestMatchers("/api/**").denyAll()
                         .anyRequest().permitAll())
