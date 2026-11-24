@@ -2,9 +2,9 @@
 title: 'Story 1.2 管理员创建成员账号'
 story: '1.2'
 epic: 1
-status: in-review
+status: done
 created: '2026-11-22'
-updated: '2026-11-22'
+updated: '2026-11-24'
 ---
 
 # 管理员创建成员账号
@@ -23,4 +23,4 @@ updated: '2026-11-22'
 
 按 [正式故事清单](../planning-artifacts/epics.md#story-12-管理员创建成员账号) 的六组标准，在独立临时 H2 库验证成功创建、输入校验、冲突保留原账号、角色与 CSRF 隔离、成员登录和持久化失败。
 
-2026-11-22 完成实现，六组验收均已运行，见 [实际验证结果](evidence/story-1.2.md)。当前等待团队代码审阅。
+2026-11-24 验收完成。本轮重新构建并通过六组 HTTP 与数据库复核，页面交互采用 2026-11-22 已通过的 Safari 验收证据。见 [实际验证结果](evidence/story-1.2.md)。
