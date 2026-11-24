@@ -5,6 +5,11 @@ export interface Identity {
   role: 'ADMIN' | 'MEMBER'
 }
 
+export interface Gpu {
+  id: string
+  model: string
+}
+
 export interface FieldError {
   field: 'loginName' | 'displayName' | 'password'
   message: string
@@ -40,6 +45,11 @@ async function post(path: string, body: URLSearchParams | null = null): Promise<
 
 export async function getIdentity(): Promise<Identity> {
   const response = await request('me')
+  return response.json()
+}
+
+export async function getGpus(): Promise<Gpu[]> {
+  const response = await request('gpus')
   return response.json()
 }
 
