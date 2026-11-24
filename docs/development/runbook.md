@@ -84,6 +84,8 @@ java -jar backend/target/gpu-queue.jar migrate "$data_dir" &&
 
 访问 `http://127.0.0.1:8080/`。开发时可另开终端运行 `npm --prefix frontend run dev`，通过 `http://127.0.0.1:5173/` 访问 Vite。演示时将数据目录换成 `.local-data/demo`。
 
+如果启动时在端口绑定处报 `Operation not permitted`，可在同一执行环境用 `python3 -c 'import socket; s = socket.socket(); s.bind(("127.0.0.1", 0)); print(s.getsockname())'` 检查能否绑定系统分配的端口。如果也返回 `EPERM`，请在 macOS 的终端 App 启动服务。已包含前端页面的 JAR 可直接通过 `8080` 提供页面和 API，浏览器验收只需启动这个服务。若报 `Address already in use`，用 `lsof -nP -iTCP:8080 -sTCP:LISTEN` 检查占用进程，检查 Vite 时将端口改为 `5173`。
+
 执行下方验收时，在当前交互终端用 `data_dir=$(mktemp -d "${TMPDIR:-/tmp}/gpu-queue-test-XXXXXXXX")` 建立独立目录。使用同一目录依次运行 `migrate` 两次、`init-admin` 两次和 `serve`。迁移失败用例另建临时目录，创建名为 `gpu-queue.mv.db` 的子目录，再用 `migrate && serve` 串联验证非零退出与端口不监听。
 
 ## Story 1.1 验收步骤

@@ -2,7 +2,7 @@
 title: 'Story 1.3 成员查看指定 GPU 与使用约定'
 story: '1.3'
 epic: 1
-status: review
+status: done
 created: '2026-11-24'
 updated: '2026-11-24'
 ---
@@ -17,4 +17,4 @@ updated: '2026-11-24'
 
 ## 验证
 
-已完成前端类型检查及生产构建、后端打包、独立文件库与 Spring MockMvc 验证，以及 Vue 组件渲染和交互验证。真实浏览器联调和应用进程重启演示待复核。见 [验证结果](evidence/story-1.3.md)。
+前端类型检查及生产构建、后端打包、Spring MockMvc 和 Vue 组件验证已通过。已在独立 H2 文件库完成 Safari 建号、成员登录、目录刷新、网络中断后重试和应用进程重启验收。Chrome 补充验证同样通过。见 [验收记录](evidence/story-1.3.md)。
