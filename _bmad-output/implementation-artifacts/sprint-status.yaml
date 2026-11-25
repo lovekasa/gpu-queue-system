@@ -29,7 +29,7 @@
 # - Dev moves story to 'review', then runs code-review (fresh context, different LLM recommended)
 # - Retrospective appends its action items to action_items; the status view surfaces open ones
 generated: 11-18-2026 10:28
-last_updated: 11-25-2026 20:05
+last_updated: 11-25-2026 20:36
 project: gpu-queue-system
 project_key: NOKEY
 tracking_system: file-system
@@ -42,8 +42,8 @@ development_status:
   epic-1-retrospective: optional
 
   epic-2: in-progress
-  # Story 2.1 实现、运行及独立审阅完成；review等待用户接收/合并。
-  2-1-成员提交指定-gpu-普通申请并查看受理结果: review
+  # Story 2.1 已由 PR #6 合入 main。
+  2-1-成员提交指定-gpu-普通申请并查看受理结果: done
   2-2-按卡分配普通申请并查看本人名额: backlog
   2-3-成员按卡确认开始使用: backlog
   2-4-成员按卡确认完成并归还名额: backlog
