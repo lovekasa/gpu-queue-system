@@ -6,7 +6,7 @@ import org.lab.gpuqueue.account.Account;
 import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.security.core.userdetails.User;
 
-class AccountPrincipal extends User {
+public class AccountPrincipal extends User {
     private final String id;
     private final String displayName;
     private final Account.Role role;
@@ -19,7 +19,7 @@ class AccountPrincipal extends User {
         this.role = account.role();
     }
 
-    String id() {
+    public String id() {
         return id;
     }
 

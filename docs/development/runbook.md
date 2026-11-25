@@ -116,3 +116,35 @@ $testRunId = [guid]::NewGuid()
 7. 为迁移失败场景生成另一个 GUID，在其专用临时目录下创建同名目录 `gpu-queue.mv.db`，再用该 GUID 启动 `test` 配置。确认脚本报告迁移失败并退出，`127.0.0.1:8080` 未开始监听。
 
 记录实际执行结果，省略口令、散列、CSRF 值及会话值。验收记录见 [Story 1.1 证据](../../_bmad-output/implementation-artifacts/evidence/story-1.1.md)。
+
+## Story 2.1 验证与普通申请
+
+先构建前端，再执行后端验证，让演示 JAR 包含当前页面：
+
+```powershell
+npm.cmd --prefix frontend ci --registry https://registry.npmjs.org
+npm.cmd --prefix frontend run build
+mvn.cmd -f backend/pom.xml verify
+```
+
+`RequestIntegrationTest` 使用独立临时 H2 文件库、真实事务及安全过滤链，执行合法单/多卡、1/24/72 小时、非法输入、有意重复申请、并列时间与接收序号、本人归属、匿名/管理员/CSRF/伪造字段、查询失败、后续卡写入失败回滚、数据库约束、V2→V3 升级及应用上下文关闭后重启重读。测试不访问开发或演示目录。报告位于 `backend/target/surefire-reports/`；当前共 18 项。
+
+若本机全局 Maven 缓存不可写或配置的镜像连接失败，可使用项目忽略目录中的独立缓存和 Maven Central，保留全局设置：
+
+```powershell
+New-Item -ItemType Directory -Path .local-data -Force | Out-Null
+$verificationRepository = (Join-Path (Get-Location).Path '.local-data/maven-repository').Replace('\', '/')
+$verificationSettings = '<settings xmlns="http://maven.apache.org/SETTINGS/1.2.0"><localRepository>' + $verificationRepository + '</localRepository></settings>'
+Set-Content -LiteralPath .local-data/verification-maven-settings.xml -Value $verificationSettings -Encoding utf8
+mvn.cmd -B -ntp -gs .local-data/verification-maven-settings.xml -s .local-data/verification-maven-settings.xml -f backend/pom.xml verify
+```
+
+页面验收使用新的 `-DataProfile test -TestRunId <新GUID>` 目录，按前文先迁移、初始化管理员及启动。管理员通过页面创建两个测试成员后，分别验证：
+
+1. 成员登录后选择 GPU 1、1 小时，再提交 GPU 2/3、24 小时和 GPU 1、72 小时。每次有独立申请编号、接收序号及逐卡“待分配”；无需审核，也没有名额或到期时间。未选卡和非法时长应提示输入问题。
+2. 刷新“我的申请”和整个页面，确认按接收序号倒序保留三份记录，时间以 `Asia/Shanghai` 显示。换另一成员后不能看到原成员的申请。
+3. 使用 Session 和新取得的 CSRF 请求头提交 `application/x-www-form-urlencoded`：`POST /api/requests` 的字段仅为 `durationHours` 和可重复的 `gpuIds`。成功返回 201、`id`、带 Z 的 `submittedAt`、字符串 `receiveSeq`、`durationHours` 及 `queueItems[{id,gpuId,status}]`。`GET /api/requests` 仅列本人；`GET /api/requests/{id}` 对不存在、非法格式或非本人标识统一返回 404。管理员不能调用本故事接口。
+4. 停止服务后，在独立验收库加上临时 `CHECK (gpu_id <> 10)` 约束，再启动并重新登录。提交 GPU 4/10，确认显示保存失败，重新查询仍保留原记录。停止服务后只读核对申请数和等待项数，确认没有 GPU 4 的部分写入。该约束只用于验收库，不能加入正式迁移；集成测试已自动执行等价的第二张卡失败用例。
+5. 页面保持打开时停止服务，点击“刷新我的申请”，应显示无法读取和重试按钮，不能出现“尚无申请”。重启同一独立库，刷新页面并重新登录，确认三份申请和逐卡状态仍在。最后登录管理员，通过页面创建新成员，检查既有建号入口可用。
+
+V3 只增加 `requests` 和 `queue_items`。申请与所有所选 GPU 的等待项同事务保存；接收序号由 H2 identity 生成，允许回滚空洞，不按成员与 GPU 合并。API 不接受申请人字段，归属来自 Session。实际运行结果及页面/数据库对照见 [Story 2.1 证据](../../_bmad-output/implementation-artifacts/evidence/story-2.1.md)。
