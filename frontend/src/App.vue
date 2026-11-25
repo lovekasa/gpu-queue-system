@@ -2,6 +2,7 @@
 import { onMounted, ref } from 'vue'
 import GpuCatalog from './GpuCatalog.vue'
 import MemberAccountForm from './MemberAccountForm.vue'
+import OrdinaryRequests from './OrdinaryRequests.vue'
 import { ApiError, getIdentity, logIn, logOut, type Identity } from './api'
 
 type SessionState = 'loading' | 'unavailable' | 'signed-out' | 'signed-in'
@@ -113,6 +114,7 @@ onMounted(refreshIdentity)
       </dl>
       <GpuCatalog />
       <MemberAccountForm v-if="identity.role === 'ADMIN'" :disabled="busy" />
+      <OrdinaryRequests v-if="identity.role === 'MEMBER'" :disabled="busy" />
       <p v-if="errorMessage" class="error" role="alert">{{ errorMessage }}</p>
       <button type="button" :disabled="busy" @click="submitLogout">
         {{ busy ? '正在退出…' : '退出登录' }}

@@ -11,8 +11,16 @@ export interface Gpu {
 }
 
 export interface FieldError {
-  field: 'loginName' | 'displayName' | 'password'
+  field: 'loginName' | 'displayName' | 'password' | 'gpuIds' | 'durationHours'
   message: string
+}
+
+export interface OrdinaryRequest {
+  id: string
+  submittedAt: string
+  receiveSeq: string
+  durationHours: number
+  queueItems: { id: string; gpuId: string; status: 'WAITING' }[]
 }
 
 interface Csrf {
@@ -50,6 +58,18 @@ export async function getIdentity(): Promise<Identity> {
 
 export async function getGpus(): Promise<Gpu[]> {
   const response = await request('gpus')
+  return response.json()
+}
+
+export async function getOwnRequests(): Promise<OrdinaryRequest[]> {
+  const response = await request('requests')
+  return response.json()
+}
+
+export async function submitOrdinaryRequest(gpuIds: string[], durationHours: string): Promise<OrdinaryRequest> {
+  const body = new URLSearchParams({ durationHours })
+  gpuIds.forEach(id => body.append('gpuIds', id))
+  const response = await post('requests', body)
   return response.json()
 }
 

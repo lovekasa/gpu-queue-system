@@ -1,6 +1,6 @@
 # 开发交接入口
 
-更新时间为 2026-11-24（Asia/Shanghai）。三人顺序接续，不预设固定人员分工。
+更新时间为 2026-11-25（Asia/Shanghai）。三人顺序接续，不预设固定人员分工。
 
 ## 接手顺序
 
@@ -10,6 +10,8 @@
 
 ## 当前进度
 
+- 基线为`f6f4feef12e94af0917dc1cfb99d936ce864382c`，当前分支为`codex/story-2-1`。Story 2.1 [实现规格](_bmad-output/implementation-artifacts/spec-2-1-submit-request.md)已实施并完成三个独立层审阅，规格为`done`，冲刺为`review`等待用户接收/合并。已交付 V3、普通申请事务及本人查询、成员选卡/时长表单和逐卡等待列表；[运行证据](_bmad-output/implementation-artifacts/evidence/story-2.1.md)记录全部七组验收和修正复核。
+- Story 2.1 实际通过 18 项临时 H2 文件库集成测试（0失败/错误/跳过）、Vue 类型检查及构建、Edge 单/多卡和有意重复申请、刷新、真实写入失败反馈及整体回滚、查询失败重试、JAR进程重启后重新登录重读、管理员网页建号回归。局部修正后20:04主线全量复核再次通过，并生成含最新前端的JAR；测试服务已停止。缓存/临时库在忽略目录`.local-data/`，开发/演示库未访问。本地提交见`git log -1`，未推送。
 - D047、D048 已确认本地 H2 文件库及顺序验收。PRD、架构与 ADR、验证计划、epics.md、SPEC 及配套契约是现行依据。课程实验 A 仍待准备，候选故事与旧审阅记录留作历史。
 - Story 1.1 已通过 macOS 构建、独立 H2 临时库、HTTP 和 Safari 验收，已标记 `done`。实现已由 PR #2 合入 `main`。
 - 初始管理员创建、登录及退出、CSRF 拒绝、重复初始化和迁移失败均有 [运行证据](_bmad-output/implementation-artifacts/evidence/story-1.1.md)。[运行手册](docs/development/runbook.md) 已补充 macOS 复现步骤。
@@ -18,7 +20,7 @@
 
 ## 下一步
 
-接续 Story 2.1。在选定 X/Y 故事实现前完成实验 A 准备。
+先接收/合并Story2.1本地分支（尚未推送），然后将冲刺对应项从review标记done并接续Story2.2；不要重做Story1.1–1.3或重新实现申请受理。复现入口为`backend/src/test/java/org/lab/gpuqueue/allocation/RequestIntegrationTest.java`及`docs/development/runbook.md`的Story2.1章节；本机Maven使用`.local-data/verification-maven-settings.xml`和项目内缓存，未改全局设置。现有课程材料保留本地。实验A仍须在选定X/Y故事实现前准备，不将本次普通开发充作实验结果。
 
 ## 交接历史
 
@@ -34,3 +36,6 @@
 | 2026-11-24 | 按 Story 1.1 流程重新构建 JAR，在独立 H2 库通过 Story 1.2 的六组复核，结合已有 Safari 证据标记完成。 |
 | 2026-11-24 | 用户确认已手动推送 Story 1.2 验收提交。实现 Story 1.3 并通过构建、MockMvc 与 Vue 组件验证，进入审阅。 |
 | 2026-11-24 | 使用独立 H2 库完成 Story 1.3 的 Safari 验收和 Chrome 补充验证。重启演示 JAR 后旧会话失效，原成员可重新登录，目录响应一致。Story 1.3 和 Epic 1 关闭。 |
+| 2026-11-25 | 核对GitHub同步后的进度；创建codex/story-2-1，编译Epic2上下文，完成Story2.1实现规格及七组待执行验收记录。冲刺文件validate=true，差异格式检查通过；规格处于draft，尚无业务代码或运行验收；本轮未提交或推送。 |
+| 2026-11-25 | 用户批准 Story 2.1 后完成普通申请和本人逐卡等待页面；18 项临时 H2 集成测试、前端构建及实际 Edge 页面/失败回滚/进程重启/建号回归通过，证据及运行手册已更新。故事进入 review，待主线独立审阅；测试服务停止，未提交或推送。 |
+| 2026-11-25 | 三个独立层审阅及逐条裁决完成，修正列表加载重叠、503诊断、V2旧账号升级验证并补证据编号。主线重新完整构建前端和离线Maven verify（18项全通过），冲刺校验通过；规格done、冲刺review，按BMAD创建本地提交供接收，未推送。 |
