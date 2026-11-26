@@ -9,6 +9,7 @@ import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 
+import com.fasterxml.jackson.annotation.JsonInclude;
 import org.lab.gpuqueue.allocation.QueueOrderingPolicy.WaitingCandidate;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.jdbc.core.simple.JdbcClient;
@@ -164,6 +165,83 @@ public class AllocationRepository {
                 .update();
     }
 
+    long insertStartAuditLog(Instant occurredAt, UUID memberId, UUID requestId, UUID queueItemId,
+                             UUID allocationId, int gpuId, String beforeState, String afterState) {
+        var keyHolder = new GeneratedKeyHolder();
+        jdbc.sql("""
+                INSERT INTO audit_logs (
+                    occurred_at, actor_type, actor_account_id, action,
+                    request_id, queue_item_id, allocation_id, gpu_id,
+                    reason, before_state, after_state
+                ) VALUES (
+                    :occurredAt, 'MEMBER', :actorAccountId, 'STARTED',
+                    :requestId, :queueItemId, :allocationId, :gpuId,
+                    NULL, :beforeState, :afterState
+                )
+                """)
+                .param("occurredAt", occurredAt.atOffset(ZoneOffset.UTC))
+                .param("actorAccountId", memberId)
+                .param("requestId", requestId)
+                .param("queueItemId", queueItemId)
+                .param("allocationId", allocationId)
+                .param("gpuId", gpuId)
+                .param("beforeState", beforeState)
+                .param("afterState", afterState)
+                .update(keyHolder, "TRANSITION_SEQ");
+        Number key = keyHolder.getKey();
+        if (key == null) {
+            throw new DataIntegrityViolationException("Missing generated transition_seq");
+        }
+        return key.longValue();
+    }
+
+    Optional<OwnedAllocationState> findOwnedAllocationState(UUID memberId, UUID allocationId) {
+        return jdbc.sql("""
+                SELECT a.id,
+                       r.id AS request_id,
+                       qi.id AS queue_item_id,
+                       a.gpu_id,
+                       r.duration_hours,
+                       a.allocated_at,
+                       a.expires_at,
+                       a.started_at,
+                       (ca.allocation_id IS NOT NULL) AS is_current
+                FROM allocations a
+                JOIN queue_items qi ON qi.id = a.queue_item_id AND qi.gpu_id = a.gpu_id
+                JOIN requests r ON r.id = qi.request_id
+                LEFT JOIN current_allocations ca ON ca.allocation_id = a.id AND ca.gpu_id = a.gpu_id
+                WHERE r.member_id = :memberId AND a.id = :allocationId
+                """)
+                .param("memberId", memberId)
+                .param("allocationId", allocationId)
+                .query((row, index) -> {
+                    OffsetDateTime rawStartedAt = row.getObject("started_at", OffsetDateTime.class);
+                    return new OwnedAllocationState(
+                            row.getObject("id", UUID.class),
+                            row.getObject("request_id", UUID.class),
+                            row.getObject("queue_item_id", UUID.class),
+                            row.getInt("gpu_id"),
+                            row.getInt("duration_hours"),
+                            row.getObject("allocated_at", OffsetDateTime.class).toInstant(),
+                            row.getObject("expires_at", OffsetDateTime.class).toInstant(),
+                            rawStartedAt != null ? rawStartedAt.toInstant() : null,
+                            row.getBoolean("is_current"));
+                })
+                .optional();
+    }
+
+    boolean markAllocationStarted(UUID allocationId, Instant startedAt) {
+        int updated = jdbc.sql("""
+                UPDATE allocations
+                SET started_at = :startedAt
+                WHERE id = :allocationId AND started_at IS NULL
+                """)
+                .param("allocationId", allocationId)
+                .param("startedAt", startedAt.atOffset(ZoneOffset.UTC))
+                .update();
+        return updated == 1;
+    }
+
     List<AllocationView> listAllocationsForMember(UUID memberId) {
         return jdbc.sql("""
                 SELECT a.id,
@@ -172,7 +250,8 @@ public class AllocationRepository {
                        a.gpu_id,
                        r.duration_hours,
                        a.allocated_at,
-                       a.expires_at
+                       a.expires_at,
+                       a.started_at
                 FROM allocations a
                 JOIN queue_items qi ON qi.id = a.queue_item_id AND qi.gpu_id = a.gpu_id
                 JOIN requests r ON r.id = qi.request_id
@@ -193,7 +272,8 @@ public class AllocationRepository {
                        a.gpu_id,
                        r.duration_hours,
                        a.allocated_at,
-                       a.expires_at
+                       a.expires_at,
+                       a.started_at
                 FROM allocations a
                 JOIN queue_items qi ON qi.id = a.queue_item_id AND qi.gpu_id = a.gpu_id
                 JOIN requests r ON r.id = qi.request_id
@@ -253,6 +333,8 @@ public class AllocationRepository {
     }
 
     private AllocationView readAllocation(ResultSet row, int index) throws SQLException {
+        OffsetDateTime rawStartedAt = row.getObject("started_at", OffsetDateTime.class);
+        Instant startedAt = rawStartedAt != null ? rawStartedAt.toInstant() : null;
         return new AllocationView(
                 row.getString("id"),
                 row.getString("request_id"),
@@ -261,7 +343,8 @@ public class AllocationRepository {
                 row.getInt("duration_hours"),
                 row.getObject("allocated_at", OffsetDateTime.class).toInstant(),
                 row.getObject("expires_at", OffsetDateTime.class).toInstant(),
-                "UNSTARTED");
+                startedAt,
+                startedAt != null ? "IN_USE" : "UNSTARTED");
     }
 
     private InboxMessageView readMessage(ResultSet row, int index) throws SQLException {
@@ -279,6 +362,32 @@ public class AllocationRepository {
                 row.getObject("created_at", OffsetDateTime.class).toInstant());
     }
 
+    public record OwnedAllocationState(
+            UUID id,
+            UUID requestId,
+            UUID queueItemId,
+            int gpuId,
+            int durationHours,
+            Instant allocatedAt,
+            Instant expiresAt,
+            Instant startedAt,
+            boolean current
+    ) {
+        AllocationView toView() {
+            return new AllocationView(
+                    id.toString(),
+                    requestId.toString(),
+                    queueItemId.toString(),
+                    Integer.toString(gpuId),
+                    durationHours,
+                    allocatedAt,
+                    expiresAt,
+                    startedAt,
+                    startedAt != null ? "IN_USE" : "UNSTARTED");
+        }
+    }
+
+    @JsonInclude(JsonInclude.Include.NON_NULL)
     public record AllocationView(
             String id,
             String requestId,
@@ -287,6 +396,7 @@ public class AllocationRepository {
             int durationHours,
             Instant allocatedAt,
             Instant expiresAt,
+            Instant startedAt,
             String status
     ) {}
 

@@ -65,7 +65,8 @@ public class RequestRepository {
                        qi.status,
                        a.id AS allocation_id,
                        a.allocated_at,
-                       a.expires_at
+                       a.expires_at,
+                       a.started_at
                 FROM queue_items qi
                 LEFT JOIN allocations a ON a.queue_item_id = qi.id AND a.gpu_id = qi.gpu_id
                 WHERE qi.request_id = :id
@@ -87,6 +88,8 @@ public class RequestRepository {
             }
             Instant allocatedAt = item.getObject("allocated_at", OffsetDateTime.class).toInstant();
             Instant expiresAt = item.getObject("expires_at", OffsetDateTime.class).toInstant();
+            OffsetDateTime rawStartedAt = item.getObject("started_at", OffsetDateTime.class);
+            Instant startedAt = rawStartedAt != null ? rawStartedAt.toInstant() : null;
             return new QueueItemView(
                     item.getString("id"),
                     item.getString("gpu_id"),
@@ -94,9 +97,10 @@ public class RequestRepository {
                     allocationId.toString(),
                     allocatedAt,
                     expiresAt,
-                    "UNSTARTED");
+                    startedAt,
+                    startedAt != null ? "IN_USE" : "UNSTARTED");
         }
-        return new QueueItemView(item.getString("id"), item.getString("gpu_id"), status, null, null, null, null);
+        return new QueueItemView(item.getString("id"), item.getString("gpu_id"), status, null, null, null, null, null);
     }
 
     public record RequestView(String id, Instant submittedAt, String receiveSeq, int durationHours,
@@ -105,5 +109,5 @@ public class RequestRepository {
     @JsonInclude(JsonInclude.Include.NON_NULL)
     public record QueueItemView(String id, String gpuId, String status,
                                 String allocationId, Instant allocatedAt, Instant expiresAt,
-                                String allocationStatus) {}
+                                Instant startedAt, String allocationStatus) {}
 }

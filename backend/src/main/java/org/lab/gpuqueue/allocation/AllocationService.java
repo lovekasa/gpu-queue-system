@@ -68,6 +68,39 @@ public class AllocationService {
     }
 
     @Transactional(rollbackFor = Exception.class)
+    public Optional<StartAllocationResult> confirmStart(UUID memberId, UUID allocationId) {
+        var initial = allocations.findOwnedAllocationState(memberId, allocationId);
+        if (initial.isEmpty()) {
+            return Optional.empty();
+        }
+        allocations.lockGpu(initial.get().gpuId());
+        var state = allocations.findOwnedAllocationState(memberId, allocationId).orElseThrow();
+        if (!state.current()) {
+            throw new AllocationEnded("该名额已结束或已失效，未修改当前名额。");
+        }
+        if (state.startedAt() != null) {
+            return Optional.of(new StartAllocationResult(state.toView(), true));
+        }
+        Instant now = clock.instant();
+        if (!allocations.markAllocationStarted(allocationId, now)) {
+            var latest = allocations.findOwnedAllocationState(memberId, allocationId).orElseThrow();
+            return Optional.of(new StartAllocationResult(latest.toView(), true));
+        }
+        allocations.insertStartAuditLog(
+                now,
+                memberId,
+                state.requestId(),
+                state.queueItemId(),
+                allocationId,
+                state.gpuId(),
+                "allocationStatus=UNSTARTED",
+                "allocationStatus=IN_USE;startedAt=" + now);
+        var updated = allocations.findAllocationForMember(memberId, allocationId)
+                .orElseThrow(() -> new DataIntegrityViolationException("Missing started allocation " + allocationId));
+        return Optional.of(new StartAllocationResult(updated, false));
+    }
+
+    @Transactional(rollbackFor = Exception.class)
     public Optional<AllocationView> allocateIfIdle(int gpuId) {
         return allocateGpuIfIdle(gpuId, clock.instant());
     }
@@ -158,6 +191,14 @@ public class AllocationService {
             return Integer.parseInt(value.strip());
         } catch (NumberFormatException exception) {
             throw new InvalidRequest(field, message);
+        }
+    }
+
+    public record StartAllocationResult(AllocationView allocation, boolean alreadyStarted) {}
+
+    static class AllocationEnded extends RuntimeException {
+        AllocationEnded(String message) {
+            super(message);
         }
     }
 

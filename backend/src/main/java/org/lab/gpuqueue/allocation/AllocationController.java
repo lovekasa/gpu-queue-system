@@ -7,6 +7,7 @@ import java.util.UUID;
 import jakarta.servlet.http.HttpServletRequest;
 import org.lab.gpuqueue.allocation.AllocationRepository.AllocationView;
 import org.lab.gpuqueue.allocation.AllocationRepository.InboxMessageView;
+import org.lab.gpuqueue.allocation.AllocationService.StartAllocationResult;
 import org.lab.gpuqueue.security.AccountPrincipal;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -18,6 +19,7 @@ import org.springframework.transaction.TransactionException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RestController;
 
 @RestController
@@ -67,6 +69,26 @@ class AllocationController {
                 .orElseGet(() -> ResponseEntity.notFound().build());
     }
 
+    @PostMapping("/api/allocations/{id}/start")
+    ResponseEntity<StartAllocationResult> confirmStart(@AuthenticationPrincipal AccountPrincipal principal,
+                                                       @PathVariable String id) {
+        UUID allocationId;
+        try {
+            allocationId = UUID.fromString(id);
+        } catch (IllegalArgumentException exception) {
+            return ResponseEntity.notFound().build();
+        }
+        return allocations.confirmStart(UUID.fromString(principal.id()), allocationId)
+                .map(ResponseEntity::ok)
+                .orElseGet(() -> ResponseEntity.notFound().build());
+    }
+
+    @ExceptionHandler(AllocationService.AllocationEnded.class)
+    ResponseEntity<ConflictError> allocationEnded(AllocationService.AllocationEnded exception) {
+        return ResponseEntity.status(HttpStatus.CONFLICT)
+                .body(new ConflictError("ALLOCATION_ENDED", exception.getMessage()));
+    }
+
     @ExceptionHandler({DataAccessException.class, TransactionException.class, UndeclaredThrowableException.class})
     ResponseEntity<Void> databaseUnavailable(RuntimeException exception, HttpServletRequest request) {
         Throwable cause = exception;
@@ -83,4 +105,6 @@ class AllocationController {
         log.error("Allocation database operation failed: {} {}", request.getMethod(), request.getRequestURI(), cause);
         return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE).build();
     }
+
+    record ConflictError(String code, String message) {}
 }
