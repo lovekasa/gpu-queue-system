@@ -165,8 +165,9 @@ public class AllocationRepository {
                 .update();
     }
 
-    long insertStartAuditLog(Instant occurredAt, UUID memberId, UUID requestId, UUID queueItemId,
-                             UUID allocationId, int gpuId, String beforeState, String afterState) {
+    long insertMemberActionAuditLog(Instant occurredAt, UUID memberId, String action, UUID requestId,
+                                    UUID queueItemId, UUID allocationId, int gpuId,
+                                    String beforeState, String afterState) {
         var keyHolder = new GeneratedKeyHolder();
         jdbc.sql("""
                 INSERT INTO audit_logs (
@@ -174,13 +175,14 @@ public class AllocationRepository {
                     request_id, queue_item_id, allocation_id, gpu_id,
                     reason, before_state, after_state
                 ) VALUES (
-                    :occurredAt, 'MEMBER', :actorAccountId, 'STARTED',
+                    :occurredAt, 'MEMBER', :actorAccountId, :action,
                     :requestId, :queueItemId, :allocationId, :gpuId,
                     NULL, :beforeState, :afterState
                 )
                 """)
                 .param("occurredAt", occurredAt.atOffset(ZoneOffset.UTC))
                 .param("actorAccountId", memberId)
+                .param("action", action)
                 .param("requestId", requestId)
                 .param("queueItemId", queueItemId)
                 .param("allocationId", allocationId)
@@ -195,6 +197,18 @@ public class AllocationRepository {
         return key.longValue();
     }
 
+    long insertStartAuditLog(Instant occurredAt, UUID memberId, UUID requestId, UUID queueItemId,
+                             UUID allocationId, int gpuId, String beforeState, String afterState) {
+        return insertMemberActionAuditLog(occurredAt, memberId, "STARTED", requestId, queueItemId,
+                allocationId, gpuId, beforeState, afterState);
+    }
+
+    long insertReturnAuditLog(Instant occurredAt, UUID memberId, UUID requestId, UUID queueItemId,
+                              UUID allocationId, int gpuId, String beforeState, String afterState) {
+        return insertMemberActionAuditLog(occurredAt, memberId, "RETURNED", requestId, queueItemId,
+                allocationId, gpuId, beforeState, afterState);
+    }
+
     Optional<OwnedAllocationState> findOwnedAllocationState(UUID memberId, UUID allocationId) {
         return jdbc.sql("""
                 SELECT a.id,
@@ -205,6 +219,8 @@ public class AllocationRepository {
                        a.allocated_at,
                        a.expires_at,
                        a.started_at,
+                       a.ended_at,
+                       a.end_reason,
                        (ca.allocation_id IS NOT NULL) AS is_current
                 FROM allocations a
                 JOIN queue_items qi ON qi.id = a.queue_item_id AND qi.gpu_id = a.gpu_id
@@ -216,6 +232,7 @@ public class AllocationRepository {
                 .param("allocationId", allocationId)
                 .query((row, index) -> {
                     OffsetDateTime rawStartedAt = row.getObject("started_at", OffsetDateTime.class);
+                    OffsetDateTime rawEndedAt = row.getObject("ended_at", OffsetDateTime.class);
                     return new OwnedAllocationState(
                             row.getObject("id", UUID.class),
                             row.getObject("request_id", UUID.class),
@@ -225,6 +242,8 @@ public class AllocationRepository {
                             row.getObject("allocated_at", OffsetDateTime.class).toInstant(),
                             row.getObject("expires_at", OffsetDateTime.class).toInstant(),
                             rawStartedAt != null ? rawStartedAt.toInstant() : null,
+                            rawEndedAt != null ? rawEndedAt.toInstant() : null,
+                            row.getString("end_reason"),
                             row.getBoolean("is_current"));
                 })
                 .optional();
@@ -240,6 +259,34 @@ public class AllocationRepository {
                 .param("startedAt", startedAt.atOffset(ZoneOffset.UTC))
                 .update();
         return updated == 1;
+    }
+
+    void markAllocationEnded(UUID allocationId, Instant endedAt, String endReason) {
+        int updated = jdbc.sql("""
+                UPDATE allocations
+                SET ended_at = :endedAt, end_reason = :endReason
+                WHERE id = :allocationId AND ended_at IS NULL
+                """)
+                .param("allocationId", allocationId)
+                .param("endedAt", endedAt.atOffset(ZoneOffset.UTC))
+                .param("endReason", endReason)
+                .update();
+        if (updated != 1) {
+            throw new DataIntegrityViolationException("Failed to mark allocation ended: " + allocationId);
+        }
+    }
+
+    void deleteCurrentAllocation(int gpuId, UUID allocationId) {
+        int deleted = jdbc.sql("""
+                DELETE FROM current_allocations
+                WHERE gpu_id = :gpuId AND allocation_id = :allocationId
+                """)
+                .param("gpuId", gpuId)
+                .param("allocationId", allocationId)
+                .update();
+        if (deleted != 1) {
+            throw new DataIntegrityViolationException("Failed to remove current_allocations for " + allocationId);
+        }
     }
 
     List<AllocationView> listAllocationsForMember(UUID memberId) {
@@ -344,6 +391,8 @@ public class AllocationRepository {
                 row.getObject("allocated_at", OffsetDateTime.class).toInstant(),
                 row.getObject("expires_at", OffsetDateTime.class).toInstant(),
                 startedAt,
+                null,
+                null,
                 startedAt != null ? "IN_USE" : "UNSTARTED");
     }
 
@@ -371,9 +420,12 @@ public class AllocationRepository {
             Instant allocatedAt,
             Instant expiresAt,
             Instant startedAt,
+            Instant endedAt,
+            String endReason,
             boolean current
     ) {
         AllocationView toView() {
+            String status = (endedAt != null || !current) ? "ENDED" : (startedAt != null ? "IN_USE" : "UNSTARTED");
             return new AllocationView(
                     id.toString(),
                     requestId.toString(),
@@ -383,7 +435,9 @@ public class AllocationRepository {
                     allocatedAt,
                     expiresAt,
                     startedAt,
-                    startedAt != null ? "IN_USE" : "UNSTARTED");
+                    endedAt,
+                    endReason,
+                    status);
         }
     }
 
@@ -397,6 +451,8 @@ public class AllocationRepository {
             Instant allocatedAt,
             Instant expiresAt,
             Instant startedAt,
+            Instant endedAt,
+            String endReason,
             String status
     ) {}
 

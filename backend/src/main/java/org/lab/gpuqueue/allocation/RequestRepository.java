@@ -66,7 +66,9 @@ public class RequestRepository {
                        a.id AS allocation_id,
                        a.allocated_at,
                        a.expires_at,
-                       a.started_at
+                       a.started_at,
+                       a.ended_at,
+                       a.end_reason
                 FROM queue_items qi
                 LEFT JOIN allocations a ON a.queue_item_id = qi.id AND a.gpu_id = qi.gpu_id
                 WHERE qi.request_id = :id
@@ -90,6 +92,10 @@ public class RequestRepository {
             Instant expiresAt = item.getObject("expires_at", OffsetDateTime.class).toInstant();
             OffsetDateTime rawStartedAt = item.getObject("started_at", OffsetDateTime.class);
             Instant startedAt = rawStartedAt != null ? rawStartedAt.toInstant() : null;
+            OffsetDateTime rawEndedAt = item.getObject("ended_at", OffsetDateTime.class);
+            Instant endedAt = rawEndedAt != null ? rawEndedAt.toInstant() : null;
+            String endReason = item.getString("end_reason");
+            String allocationStatus = endedAt != null ? "ENDED" : (startedAt != null ? "IN_USE" : "UNSTARTED");
             return new QueueItemView(
                     item.getString("id"),
                     item.getString("gpu_id"),
@@ -98,9 +104,12 @@ public class RequestRepository {
                     allocatedAt,
                     expiresAt,
                     startedAt,
-                    startedAt != null ? "IN_USE" : "UNSTARTED");
+                    endedAt,
+                    endReason,
+                    allocationStatus);
         }
-        return new QueueItemView(item.getString("id"), item.getString("gpu_id"), status, null, null, null, null, null);
+        return new QueueItemView(item.getString("id"), item.getString("gpu_id"), status,
+                null, null, null, null, null, null, null);
     }
 
     public record RequestView(String id, Instant submittedAt, String receiveSeq, int durationHours,
@@ -109,5 +118,6 @@ public class RequestRepository {
     @JsonInclude(JsonInclude.Include.NON_NULL)
     public record QueueItemView(String id, String gpuId, String status,
                                 String allocationId, Instant allocatedAt, Instant expiresAt,
-                                Instant startedAt, String allocationStatus) {}
+                                Instant startedAt, Instant endedAt, String endReason,
+                                String allocationStatus) {}
 }

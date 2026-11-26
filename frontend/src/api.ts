@@ -15,7 +15,7 @@ export interface FieldError {
   message: string
 }
 
-export type AllocationStatus = 'UNSTARTED' | 'IN_USE'
+export type AllocationStatus = 'UNSTARTED' | 'IN_USE' | 'ENDED'
 
 export interface QueueItem {
   id: string
@@ -25,6 +25,8 @@ export interface QueueItem {
   allocatedAt?: string
   expiresAt?: string
   startedAt?: string
+  endedAt?: string
+  endReason?: string
   allocationStatus?: AllocationStatus
 }
 
@@ -45,12 +47,19 @@ export interface Allocation {
   allocatedAt: string
   expiresAt: string
   startedAt?: string
+  endedAt?: string
+  endReason?: string
   status: AllocationStatus
 }
 
 export interface StartAllocationResult {
   allocation: Allocation
   alreadyStarted: boolean
+}
+
+export interface ReturnAllocationResult {
+  allocation: Allocation
+  alreadyEnded: boolean
 }
 
 export interface InboxMessage {
@@ -122,6 +131,11 @@ export async function getOwnMessages(): Promise<InboxMessage[]> {
 
 export async function confirmStartAllocation(allocationId: string): Promise<StartAllocationResult> {
   const response = await post(`allocations/${encodeURIComponent(allocationId)}/start`)
+  return response.json()
+}
+
+export async function confirmReturnAllocation(allocationId: string): Promise<ReturnAllocationResult> {
+  const response = await post(`allocations/${encodeURIComponent(allocationId)}/return`)
   return response.json()
 }
 

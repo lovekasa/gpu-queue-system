@@ -2,6 +2,7 @@
 import { computed, onMounted, ref } from 'vue'
 import {
   ApiError,
+  confirmReturnAllocation,
   confirmStartAllocation,
   getGpus,
   getOwnAllocations,
@@ -36,6 +37,7 @@ const fieldError = ref<FieldError>()
 const submitFailure = ref('')
 const created = ref<OrdinaryRequest>()
 const startingAllocationId = ref<string | null>(null)
+const returningAllocationId = ref<string | null>(null)
 const startNotice = ref('')
 const startError = ref('')
 
@@ -66,9 +68,10 @@ function formatTime(value: string) {
   return Number.isNaN(date.getTime()) ? value : shanghaiTime.format(date)
 }
 
-function formatAllocationStatus(status?: AllocationStatus) {
+function formatAllocationStatus(status?: AllocationStatus, endReason?: string) {
   if (status === 'UNSTARTED') return '获配未开始'
   if (status === 'IN_USE') return '已开始使用'
+  if (status === 'ENDED') return endReason === 'RETURNED' ? '已归还' : '已结束'
   return status ?? '未知状态'
 }
 
@@ -157,6 +160,35 @@ async function confirmStart(allocation: Allocation) {
     }
   } finally {
     startingAllocationId.value = null
+  }
+}
+
+async function confirmReturn(allocation: Allocation) {
+  if (returningAllocationId.value !== null || startingAllocationId.value !== null || submitting.value || props.disabled || allocationsState.value === 'loading') return
+  returningAllocationId.value = allocation.id
+  startNotice.value = ''
+  startError.value = ''
+  try {
+    const result = await confirmReturnAllocation(allocation.id)
+    const endedTimeText = result.allocation.endedAt ? formatTime(result.allocation.endedAt) : ''
+    startNotice.value = result.alreadyEnded
+      ? `GPU ${allocation.gpuId}（名额 ${allocation.id}）此前已结束，保留首次结束时间 ${endedTimeText}。`
+      : `已归还 GPU ${allocation.gpuId}（名额 ${allocation.id}，归还时间 ${endedTimeText}）；若有合法等待项已自动按序交接。`
+    await Promise.all([refreshAllocations(), refreshRequests(), refreshMessages()])
+  } catch (cause) {
+    if (cause instanceof ApiError && cause.status === 401) {
+      startError.value = '登录已失效，请重新登录。'
+    } else if (cause instanceof ApiError && cause.status === 403) {
+      startError.value = '无法通过权限或安全校验，请重新登录后重试。'
+    } else if (cause instanceof ApiError && cause.status === 404) {
+      startError.value = '未找到该本人名额，请刷新“我的名额”后重试。'
+    } else if (cause instanceof ApiError && cause.status === 503) {
+      startError.value = '归还操作保存失败，名额状态未变更，请稍后重试。'
+    } else {
+      startError.value = '未收到归还确认结果，请刷新“我的名额”核对后再重试。'
+    }
+  } finally {
+    returningAllocationId.value = null
   }
 }
 
@@ -295,13 +327,21 @@ onMounted(() => {
             <dt>开始时间</dt><dd><time :datetime="allocation.startedAt">{{ formatTime(allocation.startedAt) }}</time></dd>
           </template>
         </dl>
-        <div v-if="allocation.status === 'UNSTARTED'">
+        <div class="quota-actions">
           <button
+            v-if="allocation.status === 'UNSTARTED'"
             type="button"
-            :disabled="startingAllocationId !== null || submitting || disabled"
+            :disabled="startingAllocationId !== null || returningAllocationId !== null || submitting || disabled"
             @click="confirmStart(allocation)"
           >
             {{ startingAllocationId === allocation.id ? '正在确认开始…' : '确认开始使用' }}
+          </button>
+          <button
+            type="button"
+            :disabled="startingAllocationId !== null || returningAllocationId !== null || submitting || disabled"
+            @click="confirmReturn(allocation)"
+          >
+            {{ returningAllocationId === allocation.id ? '正在归还…' : '确认完成并归还' }}
           </button>
         </div>
       </li>
@@ -330,11 +370,14 @@ onMounted(() => {
         <ul class="waiting-items">
           <li v-for="item in request.queueItems" :key="item.id">
             <template v-if="item.status === 'ALLOCATED' && item.allocationId && item.allocatedAt && item.expiresAt">
-              GPU {{ item.gpuId }}：已获配（{{ formatAllocationStatus(item.allocationStatus) }}）｜名额编号 {{ item.allocationId }}｜分配时间
+              GPU {{ item.gpuId }}：已获配（{{ formatAllocationStatus(item.allocationStatus, item.endReason) }}）｜名额编号 {{ item.allocationId }}｜分配时间
               <time :datetime="item.allocatedAt">{{ formatTime(item.allocatedAt) }}</time>｜到期时间
               <time :datetime="item.expiresAt">{{ formatTime(item.expiresAt) }}</time>
               <template v-if="item.startedAt">
                 ｜开始时间 <time :datetime="item.startedAt">{{ formatTime(item.startedAt) }}</time>
+              </template>
+              <template v-if="item.endedAt">
+                ｜结束时间 <time :datetime="item.endedAt">{{ formatTime(item.endedAt) }}</time>
               </template>
             </template>
             <template v-else-if="item.status === 'WAITING'">

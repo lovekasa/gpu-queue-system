@@ -101,6 +101,36 @@ public class AllocationService {
     }
 
     @Transactional(rollbackFor = Exception.class)
+    public Optional<ReturnAllocationResult> confirmReturn(UUID memberId, UUID allocationId) {
+        var initial = allocations.findOwnedAllocationState(memberId, allocationId);
+        if (initial.isEmpty()) {
+            return Optional.empty();
+        }
+        allocations.lockGpu(initial.get().gpuId());
+        var state = allocations.findOwnedAllocationState(memberId, allocationId).orElseThrow();
+        if (!state.current() || state.endedAt() != null) {
+            return Optional.of(new ReturnAllocationResult(state.toView(), true));
+        }
+        Instant now = clock.instant();
+        String beforeStatus = state.startedAt() != null ? "IN_USE" : "UNSTARTED";
+        allocations.markAllocationEnded(allocationId, now, "RETURNED");
+        allocations.deleteCurrentAllocation(state.gpuId(), allocationId);
+        allocations.insertReturnAuditLog(
+                now,
+                memberId,
+                state.requestId(),
+                state.queueItemId(),
+                allocationId,
+                state.gpuId(),
+                "allocationStatus=" + beforeStatus,
+                "allocationStatus=ENDED;endReason=RETURNED;endedAt=" + now);
+        allocateGpuIfIdle(state.gpuId(), now);
+        var endedState = allocations.findOwnedAllocationState(memberId, allocationId)
+                .orElseThrow(() -> new DataIntegrityViolationException("Missing ended allocation " + allocationId));
+        return Optional.of(new ReturnAllocationResult(endedState.toView(), false));
+    }
+
+    @Transactional(rollbackFor = Exception.class)
     public Optional<AllocationView> allocateIfIdle(int gpuId) {
         return allocateGpuIfIdle(gpuId, clock.instant());
     }
@@ -195,6 +225,8 @@ public class AllocationService {
     }
 
     public record StartAllocationResult(AllocationView allocation, boolean alreadyStarted) {}
+
+    public record ReturnAllocationResult(AllocationView allocation, boolean alreadyEnded) {}
 
     static class AllocationEnded extends RuntimeException {
         AllocationEnded(String message) {

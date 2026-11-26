@@ -7,6 +7,7 @@ import java.util.UUID;
 import jakarta.servlet.http.HttpServletRequest;
 import org.lab.gpuqueue.allocation.AllocationRepository.AllocationView;
 import org.lab.gpuqueue.allocation.AllocationRepository.InboxMessageView;
+import org.lab.gpuqueue.allocation.AllocationService.ReturnAllocationResult;
 import org.lab.gpuqueue.allocation.AllocationService.StartAllocationResult;
 import org.lab.gpuqueue.security.AccountPrincipal;
 import org.slf4j.Logger;
@@ -79,6 +80,20 @@ class AllocationController {
             return ResponseEntity.notFound().build();
         }
         return allocations.confirmStart(UUID.fromString(principal.id()), allocationId)
+                .map(ResponseEntity::ok)
+                .orElseGet(() -> ResponseEntity.notFound().build());
+    }
+
+    @PostMapping("/api/allocations/{id}/return")
+    ResponseEntity<ReturnAllocationResult> confirmReturn(@AuthenticationPrincipal AccountPrincipal principal,
+                                                         @PathVariable String id) {
+        UUID allocationId;
+        try {
+            allocationId = UUID.fromString(id);
+        } catch (IllegalArgumentException exception) {
+            return ResponseEntity.notFound().build();
+        }
+        return allocations.confirmReturn(UUID.fromString(principal.id()), allocationId)
                 .map(ResponseEntity::ok)
                 .orElseGet(() -> ResponseEntity.notFound().build());
     }
