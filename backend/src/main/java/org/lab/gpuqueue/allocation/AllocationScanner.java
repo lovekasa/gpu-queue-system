@@ -2,6 +2,7 @@ package org.lab.gpuqueue.allocation;
 
 import java.lang.reflect.UndeclaredThrowableException;
 import java.util.List;
+import java.util.UUID;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -36,6 +37,20 @@ public class AllocationScanner {
     }
 
     public void scanIdleGpus() {
+        List<UUID> expiryCandidates;
+        try {
+            expiryCandidates = allocations.findExpiryCandidateAllocationIds();
+        } catch (RuntimeException exception) {
+            log.error("Failed to discover expiry/anomaly candidates", unwrap(exception));
+            expiryCandidates = List.of();
+        }
+        for (UUID allocationId : expiryCandidates) {
+            try {
+                allocations.processExpiryForAllocation(allocationId);
+            } catch (RuntimeException exception) {
+                log.error("Background expiry/anomaly processing failed for allocation {}", allocationId, unwrap(exception));
+            }
+        }
         List<Integer> candidateGpuIds;
         try {
             candidateGpuIds = allocations.findIdleCandidateGpuIds();

@@ -2,6 +2,7 @@ package org.lab.gpuqueue.allocation;
 
 import java.sql.ResultSet;
 import java.sql.SQLException;
+import java.time.Clock;
 import java.time.Instant;
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
@@ -17,9 +18,11 @@ import org.springframework.stereotype.Repository;
 @Repository
 public class RequestRepository {
     private final JdbcClient jdbc;
+    private final Clock clock;
 
-    public RequestRepository(JdbcClient jdbc) {
+    public RequestRepository(JdbcClient jdbc, Clock clock) {
         this.jdbc = jdbc;
+        this.clock = clock;
     }
 
     UUID create(UUID memberId, Instant submittedAt, int durationHours, List<Integer> gpuIds) {
@@ -67,6 +70,7 @@ public class RequestRepository {
                        a.allocated_at,
                        a.expires_at,
                        a.started_at,
+                       a.not_started_anomaly_at,
                        a.ended_at,
                        a.end_reason
                 FROM queue_items qi
@@ -92,10 +96,14 @@ public class RequestRepository {
             Instant expiresAt = item.getObject("expires_at", OffsetDateTime.class).toInstant();
             OffsetDateTime rawStartedAt = item.getObject("started_at", OffsetDateTime.class);
             Instant startedAt = rawStartedAt != null ? rawStartedAt.toInstant() : null;
+            OffsetDateTime rawAnomalyAt = item.getObject("not_started_anomaly_at", OffsetDateTime.class);
+            Instant anomalyAt = rawAnomalyAt != null ? rawAnomalyAt.toInstant() : null;
             OffsetDateTime rawEndedAt = item.getObject("ended_at", OffsetDateTime.class);
             Instant endedAt = rawEndedAt != null ? rawEndedAt.toInstant() : null;
             String endReason = item.getString("end_reason");
-            String allocationStatus = endedAt != null ? "ENDED" : (startedAt != null ? "IN_USE" : "UNSTARTED");
+            String allocationStatus = endedAt != null
+                    ? "ENDED"
+                    : AllocationRepository.deriveActiveStatus(startedAt, anomalyAt, expiresAt, clock.instant());
             return new QueueItemView(
                     item.getString("id"),
                     item.getString("gpu_id"),
@@ -104,12 +112,13 @@ public class RequestRepository {
                     allocatedAt,
                     expiresAt,
                     startedAt,
+                    anomalyAt,
                     endedAt,
                     endReason,
                     allocationStatus);
         }
         return new QueueItemView(item.getString("id"), item.getString("gpu_id"), status,
-                null, null, null, null, null, null, null);
+                null, null, null, null, null, null, null, null);
     }
 
     public record RequestView(String id, Instant submittedAt, String receiveSeq, int durationHours,
@@ -118,6 +127,6 @@ public class RequestRepository {
     @JsonInclude(JsonInclude.Include.NON_NULL)
     public record QueueItemView(String id, String gpuId, String status,
                                 String allocationId, Instant allocatedAt, Instant expiresAt,
-                                Instant startedAt, Instant endedAt, String endReason,
+                                Instant startedAt, Instant notStartedAnomalyAt, Instant endedAt, String endReason,
                                 String allocationStatus) {}
 }

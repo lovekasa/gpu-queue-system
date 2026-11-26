@@ -15,7 +15,7 @@ export interface FieldError {
   message: string
 }
 
-export type AllocationStatus = 'UNSTARTED' | 'IN_USE' | 'ENDED'
+export type AllocationStatus = 'UNSTARTED' | 'IN_USE' | 'ANOMALY' | 'OVERDUE' | 'ENDED'
 
 export interface QueueItem {
   id: string
@@ -25,6 +25,7 @@ export interface QueueItem {
   allocatedAt?: string
   expiresAt?: string
   startedAt?: string
+  notStartedAnomalyAt?: string
   endedAt?: string
   endReason?: string
   allocationStatus?: AllocationStatus
@@ -47,6 +48,7 @@ export interface Allocation {
   allocatedAt: string
   expiresAt: string
   startedAt?: string
+  notStartedAnomalyAt?: string
   endedAt?: string
   endReason?: string
   status: AllocationStatus
@@ -65,7 +67,7 @@ export interface ReturnAllocationResult {
 export interface InboxMessage {
   id: string
   transitionSeq: string
-  type: 'ALLOCATED'
+  type: 'ALLOCATED' | 'UNSTARTED_EXPIRED' | 'ANOMALY' | 'OVERDUE'
   requestId: string
   allocationId: string
   gpuId: string

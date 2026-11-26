@@ -113,8 +113,8 @@ public class AllocationRepository {
                 .update();
     }
 
-    long insertAuditLog(Instant occurredAt, UUID requestId, UUID queueItemId,
-                        UUID allocationId, int gpuId, String beforeState, String afterState) {
+    long insertSystemAuditLog(Instant occurredAt, String action, UUID requestId, UUID queueItemId,
+                              UUID allocationId, int gpuId, String beforeState, String afterState) {
         var keyHolder = new GeneratedKeyHolder();
         jdbc.sql("""
                 INSERT INTO audit_logs (
@@ -122,12 +122,13 @@ public class AllocationRepository {
                     request_id, queue_item_id, allocation_id, gpu_id,
                     reason, before_state, after_state
                 ) VALUES (
-                    :occurredAt, 'SYSTEM', NULL, 'ALLOCATED',
+                    :occurredAt, 'SYSTEM', NULL, :action,
                     :requestId, :queueItemId, :allocationId, :gpuId,
                     NULL, :beforeState, :afterState
                 )
                 """)
                 .param("occurredAt", occurredAt.atOffset(ZoneOffset.UTC))
+                .param("action", action)
                 .param("requestId", requestId)
                 .param("queueItemId", queueItemId)
                 .param("allocationId", allocationId)
@@ -142,15 +143,28 @@ public class AllocationRepository {
         return key.longValue();
     }
 
+    long insertAuditLog(Instant occurredAt, UUID requestId, UUID queueItemId,
+                        UUID allocationId, int gpuId, String beforeState, String afterState) {
+        return insertSystemAuditLog(occurredAt, "ALLOCATED", requestId, queueItemId,
+                allocationId, gpuId, beforeState, afterState);
+    }
+
     void insertInboxMessage(UUID messageId, UUID recipientId, long transitionSeq, UUID allocationId,
                             UUID requestId, int gpuId, String title, String body, Instant createdAt) {
+        insertInboxMessage(messageId, recipientId, transitionSeq, allocationId, requestId, gpuId,
+                "ALLOCATED", title, body, createdAt);
+    }
+
+    void insertInboxMessage(UUID messageId, UUID recipientId, long transitionSeq, UUID allocationId,
+                            UUID requestId, int gpuId, String messageType, String title, String body,
+                            Instant createdAt) {
         jdbc.sql("""
                 INSERT INTO inbox_messages (
                     id, recipient_id, transition_seq, allocation_id, request_id, gpu_id,
                     message_type, title, body, created_at
                 ) VALUES (
                     :id, :recipientId, :transitionSeq, :allocationId, :requestId, :gpuId,
-                    'ALLOCATED', :title, :body, :createdAt
+                    :messageType, :title, :body, :createdAt
                 )
                 """)
                 .param("id", messageId)
@@ -159,6 +173,7 @@ public class AllocationRepository {
                 .param("allocationId", allocationId)
                 .param("requestId", requestId)
                 .param("gpuId", gpuId)
+                .param("messageType", messageType)
                 .param("title", title)
                 .param("body", body)
                 .param("createdAt", createdAt.atOffset(ZoneOffset.UTC))
@@ -289,7 +304,96 @@ public class AllocationRepository {
         }
     }
 
-    List<AllocationView> listAllocationsForMember(UUID memberId) {
+    List<UUID> findExpiryCandidateAllocationIds(Instant now) {
+        return jdbc.sql("""
+                SELECT a.id
+                FROM current_allocations ca
+                JOIN allocations a ON a.id = ca.allocation_id AND a.gpu_id = ca.gpu_id
+                WHERE a.ended_at IS NULL
+                  AND (a.expires_at <= :now OR (a.started_at IS NULL AND a.not_started_anomaly_at IS NULL))
+                ORDER BY a.gpu_id ASC
+                """)
+                .param("now", now.atOffset(ZoneOffset.UTC))
+                .query(UUID.class)
+                .list();
+    }
+
+    Optional<AllocationLifecycleState> findAllocationLifecycleState(UUID allocationId) {
+        return jdbc.sql("""
+                SELECT a.id,
+                       r.id AS request_id,
+                       r.member_id,
+                       qi.id AS queue_item_id,
+                       a.gpu_id,
+                       r.duration_hours,
+                       a.allocated_at,
+                       a.expires_at,
+                       a.started_at,
+                       a.not_started_anomaly_at,
+                       a.overdue_notified_expires_at,
+                       a.ended_at,
+                       a.end_reason,
+                       (ca.allocation_id IS NOT NULL) AS is_current
+                FROM allocations a
+                JOIN queue_items qi ON qi.id = a.queue_item_id AND qi.gpu_id = a.gpu_id
+                JOIN requests r ON r.id = qi.request_id
+                LEFT JOIN current_allocations ca ON ca.allocation_id = a.id AND ca.gpu_id = a.gpu_id
+                WHERE a.id = :allocationId
+                """)
+                .param("allocationId", allocationId)
+                .query((row, index) -> {
+                    OffsetDateTime rawStarted = row.getObject("started_at", OffsetDateTime.class);
+                    OffsetDateTime rawAnomaly = row.getObject("not_started_anomaly_at", OffsetDateTime.class);
+                    OffsetDateTime rawOverdue = row.getObject("overdue_notified_expires_at", OffsetDateTime.class);
+                    OffsetDateTime rawEnded = row.getObject("ended_at", OffsetDateTime.class);
+                    return new AllocationLifecycleState(
+                            row.getObject("id", UUID.class),
+                            row.getObject("request_id", UUID.class),
+                            row.getObject("member_id", UUID.class),
+                            row.getObject("queue_item_id", UUID.class),
+                            row.getInt("gpu_id"),
+                            row.getInt("duration_hours"),
+                            row.getObject("allocated_at", OffsetDateTime.class).toInstant(),
+                            row.getObject("expires_at", OffsetDateTime.class).toInstant(),
+                            rawStarted != null ? rawStarted.toInstant() : null,
+                            rawAnomaly != null ? rawAnomaly.toInstant() : null,
+                            rawOverdue != null ? rawOverdue.toInstant() : null,
+                            rawEnded != null ? rawEnded.toInstant() : null,
+                            row.getString("end_reason"),
+                            row.getBoolean("is_current"));
+                })
+                .optional();
+    }
+
+    void markNotStartedAnomaly(UUID allocationId, Instant anomalyAt) {
+        int updated = jdbc.sql("""
+                UPDATE allocations
+                SET not_started_anomaly_at = :anomalyAt
+                WHERE id = :allocationId AND not_started_anomaly_at IS NULL AND ended_at IS NULL
+                """)
+                .param("allocationId", allocationId)
+                .param("anomalyAt", anomalyAt.atOffset(ZoneOffset.UTC))
+                .update();
+        if (updated != 1) {
+            throw new DataIntegrityViolationException("Failed to mark not_started_anomaly_at for " + allocationId);
+        }
+    }
+
+    void markOverdueNotified(UUID allocationId, Instant expiresAt) {
+        int updated = jdbc.sql("""
+                UPDATE allocations
+                SET overdue_notified_expires_at = :expiresAt
+                WHERE id = :allocationId AND ended_at IS NULL
+                """)
+                .param("allocationId", allocationId)
+                .param("expiresAt", expiresAt.atOffset(ZoneOffset.UTC))
+                .update();
+        if (updated != 1) {
+            throw new DataIntegrityViolationException("Failed to mark overdue_notified_expires_at for " + allocationId);
+        }
+    }
+
+    List<AllocationView> listAllocationsForMember(UUID memberId, Instant now) {
         return jdbc.sql("""
                 SELECT a.id,
                        r.id AS request_id,
@@ -298,7 +402,8 @@ public class AllocationRepository {
                        r.duration_hours,
                        a.allocated_at,
                        a.expires_at,
-                       a.started_at
+                       a.started_at,
+                       a.not_started_anomaly_at
                 FROM allocations a
                 JOIN queue_items qi ON qi.id = a.queue_item_id AND qi.gpu_id = a.gpu_id
                 JOIN requests r ON r.id = qi.request_id
@@ -307,11 +412,11 @@ public class AllocationRepository {
                 ORDER BY a.allocated_at DESC, r.receive_seq DESC, a.gpu_id ASC
                 """)
                 .param("memberId", memberId)
-                .query(this::readAllocation)
+                .query((row, idx) -> readAllocation(row, now))
                 .list();
     }
 
-    Optional<AllocationView> findAllocationForMember(UUID memberId, UUID allocationId) {
+    Optional<AllocationView> findAllocationForMember(UUID memberId, UUID allocationId, Instant now) {
         return jdbc.sql("""
                 SELECT a.id,
                        r.id AS request_id,
@@ -320,7 +425,8 @@ public class AllocationRepository {
                        r.duration_hours,
                        a.allocated_at,
                        a.expires_at,
-                       a.started_at
+                       a.started_at,
+                       a.not_started_anomaly_at
                 FROM allocations a
                 JOIN queue_items qi ON qi.id = a.queue_item_id AND qi.gpu_id = a.gpu_id
                 JOIN requests r ON r.id = qi.request_id
@@ -329,7 +435,7 @@ public class AllocationRepository {
                 """)
                 .param("memberId", memberId)
                 .param("allocationId", allocationId)
-                .query(this::readAllocation)
+                .query((row, idx) -> readAllocation(row, now))
                 .optional();
     }
 
@@ -379,9 +485,22 @@ public class AllocationRepository {
                 .optional();
     }
 
-    private AllocationView readAllocation(ResultSet row, int index) throws SQLException {
+    static String deriveActiveStatus(Instant startedAt, Instant notStartedAnomalyAt, Instant expiresAt, Instant now) {
+        if (startedAt != null) {
+            return !now.isBefore(expiresAt) ? "OVERDUE" : "IN_USE";
+        }
+        if (notStartedAnomalyAt != null) {
+            return "ANOMALY";
+        }
+        return "UNSTARTED";
+    }
+
+    private AllocationView readAllocation(ResultSet row, Instant now) throws SQLException {
         OffsetDateTime rawStartedAt = row.getObject("started_at", OffsetDateTime.class);
         Instant startedAt = rawStartedAt != null ? rawStartedAt.toInstant() : null;
+        OffsetDateTime rawAnomalyAt = row.getObject("not_started_anomaly_at", OffsetDateTime.class);
+        Instant anomalyAt = rawAnomalyAt != null ? rawAnomalyAt.toInstant() : null;
+        Instant expiresAt = row.getObject("expires_at", OffsetDateTime.class).toInstant();
         return new AllocationView(
                 row.getString("id"),
                 row.getString("request_id"),
@@ -389,11 +508,12 @@ public class AllocationRepository {
                 row.getString("gpu_id"),
                 row.getInt("duration_hours"),
                 row.getObject("allocated_at", OffsetDateTime.class).toInstant(),
-                row.getObject("expires_at", OffsetDateTime.class).toInstant(),
+                expiresAt,
                 startedAt,
+                anomalyAt,
                 null,
                 null,
-                startedAt != null ? "IN_USE" : "UNSTARTED");
+                deriveActiveStatus(startedAt, anomalyAt, expiresAt, now));
     }
 
     private InboxMessageView readMessage(ResultSet row, int index) throws SQLException {
@@ -410,6 +530,23 @@ public class AllocationRepository {
                 row.getObject("expires_at", OffsetDateTime.class).toInstant(),
                 row.getObject("created_at", OffsetDateTime.class).toInstant());
     }
+
+    public record AllocationLifecycleState(
+            UUID id,
+            UUID requestId,
+            UUID memberId,
+            UUID queueItemId,
+            int gpuId,
+            int durationHours,
+            Instant allocatedAt,
+            Instant expiresAt,
+            Instant startedAt,
+            Instant notStartedAnomalyAt,
+            Instant overdueNotifiedExpiresAt,
+            Instant endedAt,
+            String endReason,
+            boolean current
+    ) {}
 
     public record OwnedAllocationState(
             UUID id,
@@ -435,6 +572,7 @@ public class AllocationRepository {
                     allocatedAt,
                     expiresAt,
                     startedAt,
+                    null,
                     endedAt,
                     endReason,
                     status);
@@ -451,6 +589,7 @@ public class AllocationRepository {
             Instant allocatedAt,
             Instant expiresAt,
             Instant startedAt,
+            Instant notStartedAnomalyAt,
             Instant endedAt,
             String endReason,
             String status

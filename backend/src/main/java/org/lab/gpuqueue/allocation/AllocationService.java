@@ -95,7 +95,7 @@ public class AllocationService {
                 state.gpuId(),
                 "allocationStatus=UNSTARTED",
                 "allocationStatus=IN_USE;startedAt=" + now);
-        var updated = allocations.findAllocationForMember(memberId, allocationId)
+        var updated = allocations.findAllocationForMember(memberId, allocationId, now)
                 .orElseThrow(() -> new DataIntegrityViolationException("Missing started allocation " + allocationId));
         return Optional.of(new StartAllocationResult(updated, false));
     }
@@ -136,6 +136,116 @@ public class AllocationService {
     }
 
     @Transactional(readOnly = true)
+    public List<UUID> findExpiryCandidateAllocationIds() {
+        return allocations.findExpiryCandidateAllocationIds(clock.instant());
+    }
+
+    @Transactional(rollbackFor = Exception.class)
+    public boolean processExpiryForAllocation(UUID allocationId) {
+        var initial = allocations.findAllocationLifecycleState(allocationId);
+        if (initial.isEmpty()) {
+            return false;
+        }
+        allocations.lockGpu(initial.get().gpuId());
+        var state = allocations.findAllocationLifecycleState(allocationId).orElseThrow();
+        if (!state.current() || state.endedAt() != null) {
+            return false;
+        }
+        Instant now = clock.instant();
+        // Branch 3: started and reached/passed expiresAt -> mark OVERDUE once per expiresAt, keep current mapping.
+        if (state.startedAt() != null) {
+            if (now.isBefore(state.expiresAt())) {
+                return false;
+            }
+            if (state.overdueNotifiedExpiresAt() != null
+                    && !state.overdueNotifiedExpiresAt().isBefore(state.expiresAt())) {
+                return false;
+            }
+            allocations.markOverdueNotified(allocationId, state.expiresAt());
+            long seq = allocations.insertSystemAuditLog(
+                    now,
+                    "MARKED_OVERDUE",
+                    state.requestId(),
+                    state.queueItemId(),
+                    allocationId,
+                    state.gpuId(),
+                    "allocationStatus=IN_USE",
+                    "allocationStatus=OVERDUE;expiresAt=" + state.expiresAt());
+            allocations.insertInboxMessage(
+                    UUID.randomUUID(),
+                    state.memberId(),
+                    seq,
+                    allocationId,
+                    state.requestId(),
+                    state.gpuId(),
+                    "OVERDUE",
+                    "GPU " + state.gpuId() + " 使用名额已逾期",
+                    "名额 " + allocationId + "（GPU " + state.gpuId() + "）已到期未归还，当前标记为逾期并保留名额，等待核实处理。",
+                    now);
+            return true;
+        }
+        // Unstarted branches: compare approved span (expiresAt - allocatedAt) against 24 hours.
+        Duration approvedSpan = Duration.between(state.allocatedAt(), state.expiresAt());
+        if (approvedSpan.compareTo(Duration.ofHours(24)) < 0) {
+            // Branch 1: short-lived (< 24h) unstarted reaches expiresAt -> auto release & allocate successor.
+            if (now.isBefore(state.expiresAt())) {
+                return false;
+            }
+            allocations.markAllocationEnded(allocationId, now, "UNSTARTED_EXPIRED");
+            allocations.deleteCurrentAllocation(state.gpuId(), allocationId);
+            long seq = allocations.insertSystemAuditLog(
+                    now,
+                    "UNSTARTED_EXPIRED",
+                    state.requestId(),
+                    state.queueItemId(),
+                    allocationId,
+                    state.gpuId(),
+                    "allocationStatus=UNSTARTED",
+                    "allocationStatus=ENDED;endReason=UNSTARTED_EXPIRED;endedAt=" + now);
+            allocations.insertInboxMessage(
+                    UUID.randomUUID(),
+                    state.memberId(),
+                    seq,
+                    allocationId,
+                    state.requestId(),
+                    state.gpuId(),
+                    "UNSTARTED_EXPIRED",
+                    "GPU " + state.gpuId() + " 未开始名额已到期自动释放",
+                    "名额 " + allocationId + "（GPU " + state.gpuId() + "，批准跨度不足 24 小时）到期未确认开始，已自动释放。",
+                    now);
+            allocateGpuIfIdle(state.gpuId(), now);
+            return true;
+        }
+        // Branch 2: approved span >= 24h, 24h elapsed since allocatedAt without start -> mark anomaly & retain mapping.
+        Instant anomalyThreshold = state.allocatedAt().plus(Duration.ofHours(24));
+        if (now.isBefore(anomalyThreshold) || state.notStartedAnomalyAt() != null) {
+            return false;
+        }
+        allocations.markNotStartedAnomaly(allocationId, now);
+        long seq = allocations.insertSystemAuditLog(
+                now,
+                "MARKED_ANOMALY",
+                state.requestId(),
+                state.queueItemId(),
+                allocationId,
+                state.gpuId(),
+                "allocationStatus=UNSTARTED",
+                "allocationStatus=ANOMALY;notStartedAnomalyAt=" + now);
+        allocations.insertInboxMessage(
+                UUID.randomUUID(),
+                state.memberId(),
+                seq,
+                allocationId,
+                state.requestId(),
+                state.gpuId(),
+                "ANOMALY",
+                "GPU " + state.gpuId() + " 24 小时未开始已标记异常",
+                "名额 " + allocationId + "（GPU " + state.gpuId() + "）获配满 24 小时仍未确认开始，已标记异常并保留名额等待管理员核实。",
+                now);
+        return true;
+    }
+
+    @Transactional(readOnly = true)
     public List<Integer> findIdleCandidateGpuIds() {
         return allocations.findIdleCandidateGpuIds();
     }
@@ -152,12 +262,12 @@ public class AllocationService {
 
     @Transactional(readOnly = true)
     public List<AllocationView> listOwnAllocations(UUID memberId) {
-        return allocations.listAllocationsForMember(memberId);
+        return allocations.listAllocationsForMember(memberId, clock.instant());
     }
 
     @Transactional(readOnly = true)
     public Optional<AllocationView> findOwnAllocation(UUID memberId, UUID allocationId) {
-        return allocations.findAllocationForMember(memberId, allocationId);
+        return allocations.findAllocationForMember(memberId, allocationId, clock.instant());
     }
 
     @Transactional(readOnly = true)
@@ -209,7 +319,7 @@ public class AllocationService {
                 title,
                 body,
                 evaluationTime);
-        return Optional.of(allocations.findAllocationForMember(winner.memberId(), allocationId)
+        return Optional.of(allocations.findAllocationForMember(winner.memberId(), allocationId, evaluationTime)
                 .orElseThrow(() -> new DataIntegrityViolationException("Missing persisted allocation " + allocationId)));
     }
 

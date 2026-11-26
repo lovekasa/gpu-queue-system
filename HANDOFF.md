@@ -17,7 +17,8 @@
 | **Story 2.2：按卡分配普通申请并查看本人名额** | `done` | 已完成实现、26 项独立临时 H2 集成测试（`RequestIntegrationTest` 18 项 + `AllocationIntegrationTest` 8 项，0 失败/错误/跳过）、本机浏览器部分获配/异时期限/停服报错重试/重启补查验收及三层独立代码审阅收敛（提交 `6b647cf`）。交付 `V4__allocations.sql`（无损扩展 `queue_items`，新增 `allocations`、`current_allocations`、`audit_logs`、`inbox_messages` 及同卡复合外键/唯一约束）、`QueueOrderingPolicy`（严格 >72h 提升 + `submitted_at` + `receive_seq`）、`AllocationService` 同事务分配、`AllocationScanner`（60s 定时扫描 + `ApplicationReadyEvent` 启动补查，`init-admin` 禁扫）、`GET /api/allocations` 与 `GET /api/messages` 本人只读接口，以及前端“我的名额”/“我的申请”/“站内消息”三面板。规格见 [spec-2-2-allocate-ordinary-requests.md](_bmad-output/implementation-artifacts/spec-2-2-allocate-ordinary-requests.md)，证据见 [story-2.2.md](_bmad-output/implementation-artifacts/evidence/story-2.2.md)。 |
 | **Story 2.3：成员按卡确认开始使用** | `review` | 已在分支 `codex/story-2-3` 完成实现与验证：交付 `V5__allocation_start.sql`、`AllocationService#confirmStart` 与 `POST /api/allocations/{id}/start`、前端逐卡“确认开始使用”按钮与开始时间展示，待推送合并。证据见 [story-2.3.md](_bmad-output/implementation-artifacts/evidence/story-2.3.md)。 |
 | **Story 2.4：成员按卡确认完成并归还名额** | `review` | 已在同分支完成实现与验证：交付 `V6__allocation_return.sql`、`AllocationService#confirmReturn`（同事务归还、移除当前映射、落归还审计并立即按序交接给合法队首）、`POST /api/allocations/{id}/return` 及前端逐卡“确认完成并归还”与历史状态展示；前端构建与 33 项独立 H2 集成测试（`AllocationReturnIntegrationTest` 3 项 + 既有 30 项）全部通过，待推送合并。证据见 [story-2.4.md](_bmad-output/implementation-artifacts/evidence/story-2.4.md)。 |
-| **Epic 2 剩余故事（Story 2.5–2.8）** | `backlog` | 依次为：2.5 自动到期与 24h 未开始异常 → 2.6 管理员核实释放 → 2.7 公开等待队列 → 2.8 站内消息单条标记已读。 |
+| **Story 2.5：自动处理到期与未开始异常** | `review` | 已在同分支完成实现与验证：交付 `V7__allocation_expiry.sql`、`AllocationService#processExpiryForAllocation` 三分支处理（<24h 未开始到期自动释放并交接、>=24h 满 24h 未开始标异常保留、已开始到期标逾期保留）、`AllocationScanner` 扩展与前端状态展示；36 项独立 H2 集成测试全部通过，待推送合并。证据见 [story-2.5.md](_bmad-output/implementation-artifacts/evidence/story-2.5.md)。 |
+| **Epic 2 剩余故事（Story 2.6–2.8）** | `backlog` | 依次为：2.6 管理员核实释放 → 2.7 公开等待队列 → 2.8 站内消息单条标记已读。 |
 | **Epic 3（Story 3.1–3.9）** | `backlog` | 管理员紧急审核、人工调序、续期审核、直接延期、代归还、主动撤销、干预历史追溯、备份恢复演练及课程实验 A 准备。 |
 
 ## 下一步（供接续组员直接开始）
@@ -55,3 +56,4 @@
 | 2026-11-26 | 完成 Story 2.2 三层独立代码审阅与 22 条逐项裁决加固，重新通过前端完整构建与离线 Maven `verify`（26 项全通过，提交 `6b647cf`）；标记 Story 2.2 为 `done`，整理组员交接说明并推送 `codex/story-2-2` 创建 PR 合入 `main`，下一待办为 Story 2.3。 |
 | 2026-11-26 | 基于 `main`（`38520dd`）在 `codex/story-2-3` 实现 Story 2.3（`V5__allocation_start.sql`、`POST /api/allocations/{id}/start`、前端逐卡确认开始与开始时间展示）；通过前端构建与 30 项独立 H2 集成测试（0 失败/错误/跳过），规格标 `done`、冲刺标 `review`，创建本地提交待推送合并。 |
 | 2026-11-26 | 接续完成 Story 2.4（`V6__allocation_return.sql`、`POST /api/allocations/{id}/return` 同事务归还与合法队首交接、旧归还/重复归还隔离及前端逐卡归还与已归还历史展示）；通过前端构建与 33 项独立 H2 集成测试（0 失败/错误/跳过），规格标 `done`、冲刺标 `review`，创建本地提交待推送合并。 |
+| 2026-11-26 | 接续完成 Story 2.5（`V7__allocation_expiry.sql`、三分支自动到期/24h 未开始异常/已开始逾期处理、扫描器扩展与前端状态展示）；通过前端构建与 36 项独立 H2 集成测试（0 失败/错误/跳过），规格标 `done`、冲刺标 `review`，创建本地提交待推送合并。 |

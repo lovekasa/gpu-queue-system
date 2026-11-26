@@ -71,7 +71,13 @@ function formatTime(value: string) {
 function formatAllocationStatus(status?: AllocationStatus, endReason?: string) {
   if (status === 'UNSTARTED') return '获配未开始'
   if (status === 'IN_USE') return '已开始使用'
-  if (status === 'ENDED') return endReason === 'RETURNED' ? '已归还' : '已结束'
+  if (status === 'ANOMALY') return '未开始异常（待核实）'
+  if (status === 'OVERDUE') return '已逾期（保留名额）'
+  if (status === 'ENDED') {
+    if (endReason === 'RETURNED') return '已归还'
+    if (endReason === 'UNSTARTED_EXPIRED') return '未开始到期已释放'
+    return '已结束'
+  }
   return status ?? '未知状态'
 }
 
@@ -329,7 +335,7 @@ onMounted(() => {
         </dl>
         <div class="quota-actions">
           <button
-            v-if="allocation.status === 'UNSTARTED'"
+            v-if="allocation.status === 'UNSTARTED' || allocation.status === 'ANOMALY'"
             type="button"
             :disabled="startingAllocationId !== null || returningAllocationId !== null || submitting || disabled"
             @click="confirmStart(allocation)"
