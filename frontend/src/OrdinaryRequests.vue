@@ -2,10 +2,13 @@
 import { computed, onMounted, ref } from 'vue'
 import {
   ApiError,
+  confirmReturnAllocation,
+  confirmStartAllocation,
   getGpus,
   getOwnAllocations,
   getOwnMessages,
   getOwnRequests,
+  markInboxMessageRead,
   submitOrdinaryRequest,
   type Allocation,
   type AllocationStatus,
@@ -34,6 +37,12 @@ const submitting = ref(false)
 const fieldError = ref<FieldError>()
 const submitFailure = ref('')
 const created = ref<OrdinaryRequest>()
+const startingAllocationId = ref<string | null>(null)
+const returningAllocationId = ref<string | null>(null)
+const markingMessageId = ref<string | null>(null)
+const startNotice = ref('')
+const startError = ref('')
+const messageError = ref('')
 
 let catalogInFlight = false
 let requestsInFlight = false
@@ -62,8 +71,18 @@ function formatTime(value: string) {
   return Number.isNaN(date.getTime()) ? value : shanghaiTime.format(date)
 }
 
-function formatAllocationStatus(status?: AllocationStatus) {
-  return status === 'UNSTARTED' ? '获配未开始' : (status ?? '未知状态')
+function formatAllocationStatus(status?: AllocationStatus, endReason?: string) {
+  if (status === 'UNSTARTED') return '获配未开始'
+  if (status === 'IN_USE') return '已开始使用'
+  if (status === 'ANOMALY') return '未开始异常（待核实）'
+  if (status === 'OVERDUE') return '已逾期（保留名额）'
+  if (status === 'ENDED') {
+    if (endReason === 'RETURNED') return '已归还'
+    if (endReason === 'UNSTARTED_EXPIRED') return '未开始到期已释放'
+    if (endReason === 'VERIFIED_RELEASED') return '管理员核实已释放'
+    return '已结束'
+  }
+  return status ?? '未知状态'
 }
 
 async function refreshCatalog() {
@@ -119,6 +138,87 @@ async function refreshMessages() {
     messagesState.value = 'unavailable'
   } finally {
     messagesInFlight = false
+  }
+}
+
+async function confirmStart(allocation: Allocation) {
+  if (startingAllocationId.value !== null || submitting.value || props.disabled || allocationsState.value === 'loading') return
+  startingAllocationId.value = allocation.id
+  startNotice.value = ''
+  startError.value = ''
+  try {
+    const result = await confirmStartAllocation(allocation.id)
+    const startedTimeText = result.allocation.startedAt ? formatTime(result.allocation.startedAt) : ''
+    startNotice.value = result.alreadyStarted
+      ? `GPU ${allocation.gpuId}（名额 ${allocation.id}）此前已确认开始，保留首次开始时间 ${startedTimeText}。`
+      : `已确认开始使用 GPU ${allocation.gpuId}（名额 ${allocation.id}，开始时间 ${startedTimeText}，到期时间不变；请自行登录服务器运行任务）。`
+    await Promise.all([refreshAllocations(), refreshRequests()])
+  } catch (cause) {
+    if (cause instanceof ApiError && cause.status === 409) {
+      startError.value = `GPU ${allocation.gpuId}（名额 ${allocation.id}）已结束或已失效，未修改当前名额，请刷新查看最新状态。`
+      await Promise.all([refreshAllocations(), refreshRequests()])
+    } else if (cause instanceof ApiError && cause.status === 401) {
+      startError.value = '登录已失效，请重新登录。'
+    } else if (cause instanceof ApiError && cause.status === 403) {
+      startError.value = '无法通过权限或安全校验，请重新登录后重试。'
+    } else if (cause instanceof ApiError && cause.status === 404) {
+      startError.value = '未找到该本人名额，请刷新“我的名额”后重试。'
+    } else if (cause instanceof ApiError && cause.status === 503) {
+      startError.value = '确认开始保存失败，请稍后重试。'
+    } else {
+      startError.value = '未收到确认开始结果，请刷新“我的名额”核对后再重试。'
+    }
+  } finally {
+    startingAllocationId.value = null
+  }
+}
+
+async function confirmReturn(allocation: Allocation) {
+  if (returningAllocationId.value !== null || startingAllocationId.value !== null || submitting.value || props.disabled || allocationsState.value === 'loading') return
+  returningAllocationId.value = allocation.id
+  startNotice.value = ''
+  startError.value = ''
+  try {
+    const result = await confirmReturnAllocation(allocation.id)
+    const endedTimeText = result.allocation.endedAt ? formatTime(result.allocation.endedAt) : ''
+    startNotice.value = result.alreadyEnded
+      ? `GPU ${allocation.gpuId}（名额 ${allocation.id}）此前已结束，保留首次结束时间 ${endedTimeText}。`
+      : `已归还 GPU ${allocation.gpuId}（名额 ${allocation.id}，归还时间 ${endedTimeText}）；若有合法等待项已自动按序交接。`
+    await Promise.all([refreshAllocations(), refreshRequests(), refreshMessages()])
+  } catch (cause) {
+    if (cause instanceof ApiError && cause.status === 401) {
+      startError.value = '登录已失效，请重新登录。'
+    } else if (cause instanceof ApiError && cause.status === 403) {
+      startError.value = '无法通过权限或安全校验，请重新登录后重试。'
+    } else if (cause instanceof ApiError && cause.status === 404) {
+      startError.value = '未找到该本人名额，请刷新“我的名额”后重试。'
+    } else if (cause instanceof ApiError && cause.status === 503) {
+      startError.value = '归还操作保存失败，名额状态未变更，请稍后重试。'
+    } else {
+      startError.value = '未收到归还确认结果，请刷新“我的名额”核对后再重试。'
+    }
+  } finally {
+    returningAllocationId.value = null
+  }
+}
+
+async function markRead(message: InboxMessage) {
+  if (markingMessageId.value !== null || props.disabled || messagesState.value === 'loading') return
+  markingMessageId.value = message.id
+  messageError.value = ''
+  try {
+    await markInboxMessageRead(message.id)
+    await refreshMessages()
+  } catch (cause) {
+    if (cause instanceof ApiError && cause.status === 401) {
+      messageError.value = '登录已失效，请重新登录。'
+    } else if (cause instanceof ApiError && cause.status === 403) {
+      messageError.value = '无法通过权限或安全校验，请重新登录后重试。'
+    } else {
+      messageError.value = '标记已读失败，请重试。'
+    }
+  } finally {
+    markingMessageId.value = null
   }
 }
 
@@ -238,6 +338,8 @@ onMounted(() => {
     >
       {{ allocationsState === 'unavailable' ? '重试加载我的名额' : '刷新我的名额' }}
     </button>
+    <p v-if="startError" class="error" role="alert">{{ startError }}</p>
+    <p v-if="startNotice" class="receipt" role="status">{{ startNotice }}</p>
     <p v-if="allocationsState === 'loading'" role="status">正在加载我的名额…</p>
     <p v-else-if="allocationsState === 'unavailable'" class="error" role="alert">无法读取我的名额，请重试。</p>
     <p v-else-if="allocations.length === 0">当前暂无已获配名额。</p>
@@ -251,7 +353,27 @@ onMounted(() => {
           <dt>预计时长</dt><dd>{{ allocation.durationHours }} 小时</dd>
           <dt>分配时间</dt><dd><time :datetime="allocation.allocatedAt">{{ formatTime(allocation.allocatedAt) }}</time></dd>
           <dt>到期时间</dt><dd><time :datetime="allocation.expiresAt">{{ formatTime(allocation.expiresAt) }}</time></dd>
+          <template v-if="allocation.startedAt">
+            <dt>开始时间</dt><dd><time :datetime="allocation.startedAt">{{ formatTime(allocation.startedAt) }}</time></dd>
+          </template>
         </dl>
+        <div class="quota-actions">
+          <button
+            v-if="allocation.status === 'UNSTARTED' || allocation.status === 'ANOMALY'"
+            type="button"
+            :disabled="startingAllocationId !== null || returningAllocationId !== null || submitting || disabled"
+            @click="confirmStart(allocation)"
+          >
+            {{ startingAllocationId === allocation.id ? '正在确认开始…' : '确认开始使用' }}
+          </button>
+          <button
+            type="button"
+            :disabled="startingAllocationId !== null || returningAllocationId !== null || submitting || disabled"
+            @click="confirmReturn(allocation)"
+          >
+            {{ returningAllocationId === allocation.id ? '正在归还…' : '确认完成并归还' }}
+          </button>
+        </div>
       </li>
     </ol>
 
@@ -278,9 +400,15 @@ onMounted(() => {
         <ul class="waiting-items">
           <li v-for="item in request.queueItems" :key="item.id">
             <template v-if="item.status === 'ALLOCATED' && item.allocationId && item.allocatedAt && item.expiresAt">
-              GPU {{ item.gpuId }}：已获配（{{ formatAllocationStatus(item.allocationStatus) }}）｜名额编号 {{ item.allocationId }}｜分配时间
+              GPU {{ item.gpuId }}：已获配（{{ formatAllocationStatus(item.allocationStatus, item.endReason) }}）｜名额编号 {{ item.allocationId }}｜分配时间
               <time :datetime="item.allocatedAt">{{ formatTime(item.allocatedAt) }}</time>｜到期时间
               <time :datetime="item.expiresAt">{{ formatTime(item.expiresAt) }}</time>
+              <template v-if="item.startedAt">
+                ｜开始时间 <time :datetime="item.startedAt">{{ formatTime(item.startedAt) }}</time>
+              </template>
+              <template v-if="item.endedAt">
+                ｜结束时间 <time :datetime="item.endedAt">{{ formatTime(item.endedAt) }}</time>
+              </template>
             </template>
             <template v-else-if="item.status === 'WAITING'">
               GPU {{ item.gpuId }}：待分配
@@ -294,7 +422,8 @@ onMounted(() => {
     </ol>
 
     <h2 id="inbox-messages-title">站内消息</h2>
-    <p>展示本人获配通知，时间按上海时间（Asia/Shanghai）显示。</p>
+    <p>展示本人通知，仅在明确点击“标记已读”后记录已读时间；查询列表不会自动标记已读。时间按上海时间（Asia/Shanghai）显示。</p>
+    <p v-if="messageError" class="error" role="alert">{{ messageError }}</p>
     <button
       type="button"
       :disabled="messagesState === 'loading' || submitting || disabled"
@@ -310,6 +439,13 @@ onMounted(() => {
         <p class="message-title"><strong>{{ message.title }}</strong></p>
         <p class="message-body">{{ message.body }}</p>
         <dl>
+          <dt>已读状态</dt>
+          <dd>
+            <template v-if="message.readAt">
+              已读（<time :datetime="message.readAt">{{ formatTime(message.readAt) }}</time>）
+            </template>
+            <template v-else>未读</template>
+          </dd>
           <dt>消息编号</dt><dd>{{ message.id }}</dd>
           <dt>转换序号</dt><dd>{{ message.transitionSeq }}</dd>
           <dt>指定 GPU</dt><dd>GPU {{ message.gpuId }}</dd>
@@ -319,6 +455,15 @@ onMounted(() => {
           <dt>到期时间</dt><dd><time :datetime="message.expiresAt">{{ formatTime(message.expiresAt) }}</time></dd>
           <dt>通知时间</dt><dd><time :datetime="message.createdAt">{{ formatTime(message.createdAt) }}</time></dd>
         </dl>
+        <div v-if="!message.readAt">
+          <button
+            type="button"
+            :disabled="markingMessageId !== null || disabled"
+            @click="markRead(message)"
+          >
+            {{ markingMessageId === message.id ? '正在标记…' : '标记已读' }}
+          </button>
+        </div>
       </li>
     </ol>
   </section>

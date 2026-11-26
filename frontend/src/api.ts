@@ -15,7 +15,7 @@ export interface FieldError {
   message: string
 }
 
-export type AllocationStatus = 'UNSTARTED'
+export type AllocationStatus = 'UNSTARTED' | 'IN_USE' | 'ANOMALY' | 'OVERDUE' | 'ENDED'
 
 export interface QueueItem {
   id: string
@@ -24,6 +24,10 @@ export interface QueueItem {
   allocationId?: string
   allocatedAt?: string
   expiresAt?: string
+  startedAt?: string
+  notStartedAnomalyAt?: string
+  endedAt?: string
+  endReason?: string
   allocationStatus?: AllocationStatus
 }
 
@@ -43,13 +47,27 @@ export interface Allocation {
   durationHours: number
   allocatedAt: string
   expiresAt: string
+  startedAt?: string
+  notStartedAnomalyAt?: string
+  endedAt?: string
+  endReason?: string
   status: AllocationStatus
+}
+
+export interface StartAllocationResult {
+  allocation: Allocation
+  alreadyStarted: boolean
+}
+
+export interface ReturnAllocationResult {
+  allocation: Allocation
+  alreadyEnded: boolean
 }
 
 export interface InboxMessage {
   id: string
   transitionSeq: string
-  type: 'ALLOCATED'
+  type: 'ALLOCATED' | 'UNSTARTED_EXPIRED' | 'ANOMALY' | 'OVERDUE' | 'VERIFIED_RELEASED'
   requestId: string
   allocationId: string
   gpuId: string
@@ -58,6 +76,22 @@ export interface InboxMessage {
   allocatedAt: string
   expiresAt: string
   createdAt: string
+  readAt?: string
+}
+
+export interface MarkMessageReadResult {
+  message: InboxMessage
+  alreadyRead: boolean
+}
+
+export interface PublicQueueEntry {
+  position: number
+  memberName: string
+}
+
+export interface PublicGpuQueue {
+  gpuId: string
+  waiting: PublicQueueEntry[]
 }
 
 interface Csrf {
@@ -113,6 +147,26 @@ export async function getOwnMessages(): Promise<InboxMessage[]> {
   return response.json()
 }
 
+export async function markInboxMessageRead(messageId: string): Promise<MarkMessageReadResult> {
+  const response = await post(`messages/${encodeURIComponent(messageId)}/read`)
+  return response.json()
+}
+
+export async function getPublicQueues(): Promise<PublicGpuQueue[]> {
+  const response = await request('queues')
+  return response.json()
+}
+
+export async function confirmStartAllocation(allocationId: string): Promise<StartAllocationResult> {
+  const response = await post(`allocations/${encodeURIComponent(allocationId)}/start`)
+  return response.json()
+}
+
+export async function confirmReturnAllocation(allocationId: string): Promise<ReturnAllocationResult> {
+  const response = await post(`allocations/${encodeURIComponent(allocationId)}/return`)
+  return response.json()
+}
+
 export async function submitOrdinaryRequest(gpuIds: string[], durationHours: string): Promise<OrdinaryRequest> {
   const body = new URLSearchParams({ durationHours })
   gpuIds.forEach(id => body.append('gpuIds', id))
@@ -126,6 +180,48 @@ export async function logIn(username: string, password: string): Promise<void> {
 
 export async function logOut(): Promise<void> {
   await post('logout')
+}
+
+export interface PendingVerificationAllocation {
+  id: string
+  requestId: string
+  queueItemId: string
+  gpuId: string
+  memberDisplayName: string
+  durationHours: number
+  allocatedAt: string
+  expiresAt: string
+  startedAt?: string
+  notStartedAnomalyAt?: string
+  status: 'ANOMALY' | 'OVERDUE'
+}
+
+export interface VerifiedReleaseResult {
+  allocationId: string
+  gpuId: string
+  endedAt?: string
+  endReason?: string
+  alreadyEnded: boolean
+}
+
+export async function getPendingVerificationAllocations(): Promise<PendingVerificationAllocation[]> {
+  const response = await request('admin/allocations/pending-verification')
+  return response.json()
+}
+
+export async function submitAdminVerifiedRelease(
+  allocationId: string,
+  seenStatus: 'ANOMALY' | 'OVERDUE',
+  verified: boolean,
+  reason: string,
+): Promise<VerifiedReleaseResult> {
+  const body = new URLSearchParams({
+    seenStatus,
+    verified: verified ? 'true' : 'false',
+    reason,
+  })
+  const response = await post(`admin/allocations/${encodeURIComponent(allocationId)}/verified-release`, body)
+  return response.json()
 }
 
 export async function createMember(loginName: string, displayName: string, password: string): Promise<Identity> {

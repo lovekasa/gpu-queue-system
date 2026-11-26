@@ -1,8 +1,10 @@
 <script setup lang="ts">
 import { onMounted, ref } from 'vue'
+import AdminVerifiedRelease from './AdminVerifiedRelease.vue'
 import GpuCatalog from './GpuCatalog.vue'
 import MemberAccountForm from './MemberAccountForm.vue'
 import OrdinaryRequests from './OrdinaryRequests.vue'
+import PublicQueues from './PublicQueues.vue'
 import { ApiError, getIdentity, logIn, logOut, type Identity } from './api'
 
 type SessionState = 'loading' | 'unavailable' | 'signed-out' | 'signed-in'
@@ -113,7 +115,9 @@ onMounted(refreshIdentity)
         <dd>{{ identity.role === 'ADMIN' ? '算力管理员' : '成员' }}</dd>
       </dl>
       <GpuCatalog />
+      <PublicQueues />
       <MemberAccountForm v-if="identity.role === 'ADMIN'" :disabled="busy" />
+      <AdminVerifiedRelease v-if="identity.role === 'ADMIN'" :disabled="busy" />
       <OrdinaryRequests v-if="identity.role === 'MEMBER'" :disabled="busy" />
       <p v-if="errorMessage" class="error" role="alert">{{ errorMessage }}</p>
       <button type="button" :disabled="busy" @click="submitLogout">

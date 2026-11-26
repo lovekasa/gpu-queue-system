@@ -1,0 +1,1 @@
+ALTER TABLE inbox_messages ADD COLUMN read_at TIMESTAMP(9) WITH TIME ZONE;
