@@ -76,6 +76,7 @@ function formatAllocationStatus(status?: AllocationStatus, endReason?: string) {
   if (status === 'ENDED') {
     if (endReason === 'RETURNED') return '已归还'
     if (endReason === 'UNSTARTED_EXPIRED') return '未开始到期已释放'
+    if (endReason === 'VERIFIED_RELEASED') return '管理员核实已释放'
     return '已结束'
   }
   return status ?? '未知状态'

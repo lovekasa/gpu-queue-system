@@ -11,6 +11,7 @@ import java.util.UUID;
 
 import org.lab.gpuqueue.allocation.AllocationRepository.AllocationView;
 import org.lab.gpuqueue.allocation.AllocationRepository.InboxMessageView;
+import org.lab.gpuqueue.allocation.AllocationRepository.PendingVerificationView;
 import org.lab.gpuqueue.allocation.RequestRepository.RequestView;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Service;
@@ -133,6 +134,70 @@ public class AllocationService {
     @Transactional(rollbackFor = Exception.class)
     public Optional<AllocationView> allocateIfIdle(int gpuId) {
         return allocateGpuIfIdle(gpuId, clock.instant());
+    }
+
+    @Transactional(readOnly = true)
+    public List<PendingVerificationView> listPendingVerificationAllocations() {
+        return allocations.listPendingVerificationAllocations(clock.instant());
+    }
+
+    @Transactional(rollbackFor = Exception.class)
+    public Optional<VerifiedReleaseResult> adminVerifiedRelease(
+            UUID adminId, UUID allocationId, String seenStatus, boolean verified, String rawReason) {
+        if (!"ANOMALY".equals(seenStatus) && !"OVERDUE".equals(seenStatus)) {
+            throw new InvalidRequest("seenStatus", "所见状态须为 ANOMALY 或 OVERDUE。");
+        }
+        if (!verified) {
+            throw new InvalidRequest("verified", "请先勾选确认已完成核实。");
+        }
+        String reason = rawReason == null ? "" : rawReason.strip();
+        if (reason.isEmpty() || reason.length() > 500) {
+            throw new InvalidRequest("reason", "请填写 1 至 500 字的核实释放理由。");
+        }
+        var initial = allocations.findAllocationLifecycleState(allocationId);
+        if (initial.isEmpty()) {
+            return Optional.empty();
+        }
+        allocations.lockGpu(initial.get().gpuId());
+        var state = allocations.findAllocationLifecycleState(allocationId).orElseThrow();
+        if (!state.current() || state.endedAt() != null) {
+            return Optional.of(new VerifiedReleaseResult(allocationId.toString(), Integer.toString(state.gpuId()),
+                    state.endedAt(), state.endReason(), true));
+        }
+        Instant now = clock.instant();
+        String actualStatus = AllocationRepository.deriveActiveStatus(
+                state.startedAt(), state.notStartedAnomalyAt(), state.expiresAt(), now);
+        if (!actualStatus.equals(seenStatus)) {
+            throw new StatusConflict("目标名额当前状态已变更为 " + actualStatus + "，请刷新列表后重新核实。");
+        }
+        allocations.markAllocationEnded(allocationId, now, "VERIFIED_RELEASED");
+        allocations.deleteCurrentAllocation(state.gpuId(), allocationId);
+        long seq = allocations.insertAdminAuditLog(
+                now,
+                adminId,
+                "VERIFIED_RELEASED",
+                state.requestId(),
+                state.queueItemId(),
+                allocationId,
+                state.gpuId(),
+                reason,
+                "allocationStatus=" + actualStatus,
+                "allocationStatus=ENDED;endReason=VERIFIED_RELEASED;endedAt=" + now);
+        allocations.insertInboxMessage(
+                UUID.randomUUID(),
+                state.memberId(),
+                seq,
+                allocationId,
+                state.requestId(),
+                state.gpuId(),
+                "VERIFIED_RELEASED",
+                "GPU " + state.gpuId() + " 名额已由管理员核实释放",
+                "名额 " + allocationId + "（GPU " + state.gpuId() + "，原状态 " + actualStatus
+                        + "）已由管理员核实并释放。理由：" + reason,
+                now);
+        allocateGpuIfIdle(state.gpuId(), now);
+        return Optional.of(new VerifiedReleaseResult(allocationId.toString(), Integer.toString(state.gpuId()),
+                now, "VERIFIED_RELEASED", false));
     }
 
     @Transactional(readOnly = true)
@@ -337,6 +402,15 @@ public class AllocationService {
     public record StartAllocationResult(AllocationView allocation, boolean alreadyStarted) {}
 
     public record ReturnAllocationResult(AllocationView allocation, boolean alreadyEnded) {}
+
+    public record VerifiedReleaseResult(String allocationId, String gpuId, Instant endedAt,
+                                        String endReason, boolean alreadyEnded) {}
+
+    static class StatusConflict extends RuntimeException {
+        StatusConflict(String message) {
+            super(message);
+        }
+    }
 
     static class AllocationEnded extends RuntimeException {
         AllocationEnded(String message) {

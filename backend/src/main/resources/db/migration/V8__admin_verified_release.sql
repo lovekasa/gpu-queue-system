@@ -1,0 +1,9 @@
+ALTER TABLE audit_logs DROP CONSTRAINT audit_logs_action_check;
+ALTER TABLE audit_logs ADD CONSTRAINT audit_logs_action_check CHECK (
+    action IN ('ALLOCATED', 'STARTED', 'RETURNED', 'UNSTARTED_EXPIRED', 'MARKED_ANOMALY', 'MARKED_OVERDUE', 'VERIFIED_RELEASED')
+);
+
+ALTER TABLE inbox_messages DROP CONSTRAINT inbox_messages_type_check;
+ALTER TABLE inbox_messages ADD CONSTRAINT inbox_messages_type_check CHECK (
+    message_type IN ('ALLOCATED', 'UNSTARTED_EXPIRED', 'ANOMALY', 'OVERDUE', 'VERIFIED_RELEASED')
+);

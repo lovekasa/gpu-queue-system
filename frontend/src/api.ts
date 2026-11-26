@@ -67,7 +67,7 @@ export interface ReturnAllocationResult {
 export interface InboxMessage {
   id: string
   transitionSeq: string
-  type: 'ALLOCATED' | 'UNSTARTED_EXPIRED' | 'ANOMALY' | 'OVERDUE'
+  type: 'ALLOCATED' | 'UNSTARTED_EXPIRED' | 'ANOMALY' | 'OVERDUE' | 'VERIFIED_RELEASED'
   requestId: string
   allocationId: string
   gpuId: string
@@ -154,6 +154,48 @@ export async function logIn(username: string, password: string): Promise<void> {
 
 export async function logOut(): Promise<void> {
   await post('logout')
+}
+
+export interface PendingVerificationAllocation {
+  id: string
+  requestId: string
+  queueItemId: string
+  gpuId: string
+  memberDisplayName: string
+  durationHours: number
+  allocatedAt: string
+  expiresAt: string
+  startedAt?: string
+  notStartedAnomalyAt?: string
+  status: 'ANOMALY' | 'OVERDUE'
+}
+
+export interface VerifiedReleaseResult {
+  allocationId: string
+  gpuId: string
+  endedAt?: string
+  endReason?: string
+  alreadyEnded: boolean
+}
+
+export async function getPendingVerificationAllocations(): Promise<PendingVerificationAllocation[]> {
+  const response = await request('admin/allocations/pending-verification')
+  return response.json()
+}
+
+export async function submitAdminVerifiedRelease(
+  allocationId: string,
+  seenStatus: 'ANOMALY' | 'OVERDUE',
+  verified: boolean,
+  reason: string,
+): Promise<VerifiedReleaseResult> {
+  const body = new URLSearchParams({
+    seenStatus,
+    verified: verified ? 'true' : 'false',
+    reason,
+  })
+  const response = await post(`admin/allocations/${encodeURIComponent(allocationId)}/verified-release`, body)
+  return response.json()
 }
 
 export async function createMember(loginName: string, displayName: string, password: string): Promise<Identity> {

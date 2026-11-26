@@ -304,6 +304,86 @@ public class AllocationRepository {
         }
     }
 
+    long insertAdminAuditLog(Instant occurredAt, UUID adminId, String action, UUID requestId,
+                             UUID queueItemId, UUID allocationId, int gpuId, String reason,
+                             String beforeState, String afterState) {
+        var keyHolder = new GeneratedKeyHolder();
+        jdbc.sql("""
+                INSERT INTO audit_logs (
+                    occurred_at, actor_type, actor_account_id, action,
+                    request_id, queue_item_id, allocation_id, gpu_id,
+                    reason, before_state, after_state
+                ) VALUES (
+                    :occurredAt, 'ADMIN', :actorAccountId, :action,
+                    :requestId, :queueItemId, :allocationId, :gpuId,
+                    :reason, :beforeState, :afterState
+                )
+                """)
+                .param("occurredAt", occurredAt.atOffset(ZoneOffset.UTC))
+                .param("actorAccountId", adminId)
+                .param("action", action)
+                .param("requestId", requestId)
+                .param("queueItemId", queueItemId)
+                .param("allocationId", allocationId)
+                .param("gpuId", gpuId)
+                .param("reason", reason)
+                .param("beforeState", beforeState)
+                .param("afterState", afterState)
+                .update(keyHolder, "TRANSITION_SEQ");
+        Number key = keyHolder.getKey();
+        if (key == null) {
+            throw new DataIntegrityViolationException("Missing generated transition_seq");
+        }
+        return key.longValue();
+    }
+
+    List<PendingVerificationView> listPendingVerificationAllocations(Instant now) {
+        return jdbc.sql("""
+                SELECT a.id,
+                       r.id AS request_id,
+                       qi.id AS queue_item_id,
+                       a.gpu_id,
+                       acc.display_name AS member_display_name,
+                       r.duration_hours,
+                       a.allocated_at,
+                       a.expires_at,
+                       a.started_at,
+                       a.not_started_anomaly_at
+                FROM current_allocations ca
+                JOIN allocations a ON a.id = ca.allocation_id AND a.gpu_id = ca.gpu_id
+                JOIN queue_items qi ON qi.id = a.queue_item_id AND qi.gpu_id = a.gpu_id
+                JOIN requests r ON r.id = qi.request_id
+                JOIN accounts acc ON acc.id = r.member_id
+                WHERE a.ended_at IS NULL
+                  AND (
+                      (a.started_at IS NOT NULL AND a.expires_at <= :now)
+                      OR (a.started_at IS NULL AND a.not_started_anomaly_at IS NOT NULL)
+                  )
+                ORDER BY a.gpu_id ASC
+                """)
+                .param("now", now.atOffset(ZoneOffset.UTC))
+                .query((row, idx) -> {
+                    OffsetDateTime rawStarted = row.getObject("started_at", OffsetDateTime.class);
+                    Instant startedAt = rawStarted != null ? rawStarted.toInstant() : null;
+                    OffsetDateTime rawAnomaly = row.getObject("not_started_anomaly_at", OffsetDateTime.class);
+                    Instant anomalyAt = rawAnomaly != null ? rawAnomaly.toInstant() : null;
+                    Instant expiresAt = row.getObject("expires_at", OffsetDateTime.class).toInstant();
+                    return new PendingVerificationView(
+                            row.getString("id"),
+                            row.getString("request_id"),
+                            row.getString("queue_item_id"),
+                            row.getString("gpu_id"),
+                            row.getString("member_display_name"),
+                            row.getInt("duration_hours"),
+                            row.getObject("allocated_at", OffsetDateTime.class).toInstant(),
+                            expiresAt,
+                            startedAt,
+                            anomalyAt,
+                            deriveActiveStatus(startedAt, anomalyAt, expiresAt, now));
+                })
+                .list();
+    }
+
     List<UUID> findExpiryCandidateAllocationIds(Instant now) {
         return jdbc.sql("""
                 SELECT a.id
@@ -530,6 +610,21 @@ public class AllocationRepository {
                 row.getObject("expires_at", OffsetDateTime.class).toInstant(),
                 row.getObject("created_at", OffsetDateTime.class).toInstant());
     }
+
+    @JsonInclude(JsonInclude.Include.NON_NULL)
+    public record PendingVerificationView(
+            String id,
+            String requestId,
+            String queueItemId,
+            String gpuId,
+            String memberDisplayName,
+            int durationHours,
+            Instant allocatedAt,
+            Instant expiresAt,
+            Instant startedAt,
+            Instant notStartedAnomalyAt,
+            String status
+    ) {}
 
     public record AllocationLifecycleState(
             UUID id,

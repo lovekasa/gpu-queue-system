@@ -32,7 +32,11 @@ public class SecurityConfiguration {
                 .authorizeHttpRequests(auth -> auth
                         .requestMatchers(HttpMethod.GET, "/api/csrf").permitAll()
                         .requestMatchers(HttpMethod.GET, "/api/me", "/api/gpus").hasAnyRole("ADMIN", "MEMBER")
-                        .requestMatchers(HttpMethod.POST, "/api/admin/members").hasRole("ADMIN")
+                        .requestMatchers(HttpMethod.POST,
+                                "/api/admin/members",
+                                "/api/admin/allocations/*/verified-release").hasRole("ADMIN")
+                        .requestMatchers(HttpMethod.GET,
+                                "/api/admin/allocations/pending-verification").hasRole("ADMIN")
                         .requestMatchers(HttpMethod.POST,
                                 "/api/requests",
                                 "/api/allocations/*/start",
