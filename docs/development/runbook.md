@@ -148,3 +148,25 @@ mvn.cmd -B -ntp -gs .local-data/verification-maven-settings.xml -s .local-data/v
 5. 页面保持打开时停止服务，点击“刷新我的申请”，应显示无法读取和重试按钮，不能出现“尚无申请”。重启同一独立库，刷新页面并重新登录，确认三份申请和逐卡状态仍在。最后登录管理员，通过页面创建新成员，检查既有建号入口可用。
 
 V3 只增加 `requests` 和 `queue_items`。申请与所有所选 GPU 的等待项同事务保存；接收序号由 H2 identity 生成，允许回滚空洞，不按成员与 GPU 合并。API 不接受申请人字段，归属来自 Session。实际运行结果及页面/数据库对照见 [Story 2.1 证据](../../_bmad-output/implementation-artifacts/evidence/story-2.1.md)。
+
+## Story 2.2 验证与按卡分配
+
+先构建前端静态资源，再执行离线缓存下的 Maven `verify`，使测试与打包后的 `backend/target/gpu-queue.jar` 包含最新页面：
+
+```powershell
+npm.cmd --prefix frontend run build
+mvn.cmd -B -ntp -gs .local-data/verification-maven-settings.xml -s .local-data/verification-maven-settings.xml -f backend/pom.xml verify
+```
+
+- `V4__allocations.sql` 无损升级 `queue_items`（保留原记录，状态扩展为 `'WAITING' | 'ALLOCATED'` 并增加 `UNIQUE (id, gpu_id)`），新增 `allocations`、`current_allocations`（`gpu_id` 主键、`allocation_id` 唯一及同卡外键）、`audit_logs`（`transition_seq` identity 主键）和 `inbox_messages`（关联 `transition_seq` 与 `allocation_id` 唯一约束）。不修改 `V1`–`V3`。
+- `AllocationService` 是唯一名额写入口（`@Transactional(rollbackFor = Exception.class)`）：普通申请入队后立即按卡尝试空闲分配；`serve` 模式启用 `ApplicationReadyEvent` 启动补查和每 60 秒定时扫描，`init-admin` 非 Web 模式禁用后台扫描。
+- 成员只读接口：`GET /api/allocations`、`GET /api/allocations/{id}`、`GET /api/messages`、`GET /api/messages/{id}` 仅向当前登录 `MEMBER` 返回本人数据；他人、不存在或非法 UUID 详情统一返回空体 `404`；匿名返回 `401`、管理员返回 `403`、数据库异常返回空体 `503`。
+- `RequestIntegrationTest`（18 项）与 `AllocationIntegrationTest`（8 项）共 26 项独立临时 H2 文件库测试，覆盖入队即分配与部分获配、跨卡独立与多卡持有、72 小时严格提升边界与并列序号/同人重复排序、异时获配独立计时、受检异常及审计/站内消息失败整体回滚、数据库同卡外键与唯一约束、`V3→V4` 升级、`init-admin` 禁扫以及停机写入等待项后的启动补查与定时扫描。
+
+独立文件库浏览器复现步骤（使用新的忽略目录或 `-DataProfile test -TestRunId <新GUID>`，不访问 `.local-data/dev` 或 `.local-data/demo`）：
+
+1. 运行 `migrate` 应用 `V1`–`V4`，准备两个成员账号与管理员账号后启动 `serve`，访问 `http://127.0.0.1:8080/`。
+2. 成员乙登录并提交空闲 `GPU 2`（`12` 小时），核对受理回执、“我的名额”、“我的申请”和“站内消息”显示 `获配未开始`、名额编号、上海时间（`Asia/Shanghai`）及使用权边界说明，退出登录。
+3. 成员甲登录，确认看不到成员乙的任何记录；选择忙碌 `GPU 2` 与空闲 `GPU 3`（`24` 小时）提交，核对 `GPU 3` 立即获配（`t1` 至 `t1 + 24h`）、`GPU 2` 保持 `待分配`，页面不出现整单“全部获配”标志。
+4. 页面保持打开时停止后端，依次点击“刷新我的名额”、“刷新我的申请”、“刷新站内消息”，确认三面板独立显示错误提示与重试按钮，不伪装为空态。
+5. 停服期间在独立测试库移除 `GPU 2` 当前映射并插入一条空闲 `GPU 5`（`6` 小时）的 `WAITING` 记录；重启 `serve` 后刷新页面重新登录成员甲，核对启动补查已自动分配 `GPU 2`（独立按 `t2` 至 `t2 + 24h` 计时，`GPU 3` 仍保持 `t1` 至 `t1 + 24h`）与 `GPU 5`（`t2` 至 `t2 + 6h`），并生成对应站内消息。最后登录管理员验证建号回归并退出、停服。实际记录见 [Story 2.2 证据](../../_bmad-output/implementation-artifacts/evidence/story-2.2.md)。

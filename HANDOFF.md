@@ -1,26 +1,35 @@
 # 开发交接入口
 
-更新时间为 2026-11-25（Asia/Shanghai）。三人顺序接续，不预设固定人员分工。
+更新时间为 2026-11-26（Asia/Shanghai）。三人顺序接续，不预设固定人员分工。
 
 ## 接手顺序
 
-1. 读 AGENTS.md、本文件和 git status，确认他人改动。
-2. 查看 _bmad-output/implementation-artifacts/sprint-status.yaml 和当前故事，再按规格及其配套文档执行。
-3. 接手结束时更新本文件、当前故事及冲刺状态。记录实际验证、遗留事项与提交情况。
+1. 读 `AGENTS.md`、本文件和 `git status`，执行 `git checkout main && git pull --ff-only origin main` 确认同步最新主线。
+2. 查看 `_bmad-output/implementation-artifacts/sprint-status.yaml` 和当前待办故事，再按 `_bmad-output/specs/spec-gpu-queue-system/SPEC.md` 及其全部配套文档与 `epics.md` 执行。
+3. 接手结束时更新本文件、当前故事证据及冲刺状态，记录真实验证结果、遗留事项与提交情况。
 
-## 当前进度
+## 当前进度总览（截至 Story 2.2 完成）
 
-- 基线为`f6f4feef12e94af0917dc1cfb99d936ce864382c`，当前分支为`codex/story-2-1`。Story 2.1 [实现规格](_bmad-output/implementation-artifacts/spec-2-1-submit-request.md)已实施并完成三个独立层审阅，规格为`done`，冲刺为`review`等待用户接收/合并。已交付 V3、普通申请事务及本人查询、成员选卡/时长表单和逐卡等待列表；[运行证据](_bmad-output/implementation-artifacts/evidence/story-2.1.md)记录全部七组验收和修正复核。
-- Story 2.1 实际通过 18 项临时 H2 文件库集成测试（0失败/错误/跳过）、Vue 类型检查及构建、Edge 单/多卡和有意重复申请、刷新、真实写入失败反馈及整体回滚、查询失败重试、JAR进程重启后重新登录重读、管理员网页建号回归。局部修正后20:04主线全量复核再次通过，并生成含最新前端的JAR；测试服务已停止。缓存/临时库在忽略目录`.local-data/`，开发/演示库未访问。本地提交见`git log -1`，未推送。
-- D047、D048 已确认本地 H2 文件库及顺序验收。PRD、架构与 ADR、验证计划、epics.md、SPEC 及配套契约是现行依据。课程实验 A 仍待准备，候选故事与旧审阅记录留作历史。
-- Story 1.1 已通过 macOS 构建、独立 H2 临时库、HTTP 和 Safari 验收，已标记 `done`。实现已由 PR #2 合入 `main`。
-- 初始管理员创建、登录及退出、CSRF 拒绝、重复初始化和迁移失败均有 [运行证据](_bmad-output/implementation-artifacts/evidence/story-1.1.md)。[运行手册](docs/development/runbook.md) 已补充 macOS 复现步骤。
-- Story 1.2 已验收并标记 `done`。本轮重新构建并通过六组 HTTP 与数据库复核，页面采用 2026-11-22 的 Safari 记录。见 [运行证据](_bmad-output/implementation-artifacts/evidence/story-1.2.md)。验收提交 `dd2b2e3` 已由用户手动推送到 GitHub。
-- Story 1.3 使用独立 H2 文件库通过 Safari 27.0.1 验收，覆盖网页建号、成员登录、10 张 GPU 的固定目录和使用约定、刷新、断网重试及访问控制。应用进程重启后，旧会话失效，原成员重新登录成功，目录响应与重启前逐字节一致。Chrome 补充验证通过，测试服务已停止。Story 1.3 和 Epic 1 均为 `done`。实现提交为 `e67f570`。见 [验收记录](_bmad-output/implementation-artifacts/evidence/story-1.3.md#safari-页面与应用进程验收)。
+| 模块 / 故事 | 状态 | 已交付内容与证据 |
+| --- | --- | --- |
+| **Epic 1（Story 1.1–1.3）** | `done` | Spring Boot 3.3.13 + Vue 3 + H2 文件库脚手架、`V1__accounts.sql` 受控管理员初始化与登录退出（PR #2）、管理员网页创建成员账号（Story 1.2）、`V2__gpu_catalog.sql` 10 张固定 RTX 4090 目录与使用约定展示（PR #5）。证据见 `evidence/story-1.1.md`–`story-1.3.md`。 |
+| **Story 2.1：普通申请入队与本人受理查询** | `done` | 已由 PR #6（`94e6f4a`）合入 `main`。交付 `V3__requests.sql`（`requests`、`queue_items`）、1–72 整数小时校验、多卡及主动重复申请独立入队、`POST/GET /api/requests` 与前端选卡表单。证据见 [story-2.1.md](_bmad-output/implementation-artifacts/evidence/story-2.1.md)。 |
+| **Story 2.2：按卡分配普通申请并查看本人名额** | `done` | 已完成实现、26 项独立临时 H2 集成测试（`RequestIntegrationTest` 18 项 + `AllocationIntegrationTest` 8 项，0 失败/错误/跳过）、本机浏览器部分获配/异时期限/停服报错重试/重启补查验收及三层独立代码审阅收敛（提交 `6b647cf`）。交付 `V4__allocations.sql`（无损扩展 `queue_items`，新增 `allocations`、`current_allocations`、`audit_logs`、`inbox_messages` 及同卡复合外键/唯一约束）、`QueueOrderingPolicy`（严格 >72h 提升 + `submitted_at` + `receive_seq`）、`AllocationService` 同事务分配、`AllocationScanner`（60s 定时扫描 + `ApplicationReadyEvent` 启动补查，`init-admin` 禁扫）、`GET /api/allocations` 与 `GET /api/messages` 本人只读接口，以及前端“我的名额”/“我的申请”/“站内消息”三面板。规格见 [spec-2-2-allocate-ordinary-requests.md](_bmad-output/implementation-artifacts/spec-2-2-allocate-ordinary-requests.md)，证据见 [story-2.2.md](_bmad-output/implementation-artifacts/evidence/story-2.2.md)。 |
+| **Epic 2 剩余故事（Story 2.3–2.8）** | `backlog` | 依次为：2.3 按卡确认开始 → 2.4 按卡确认完成并归还（含同事务后继分配） → 2.5 自动到期与 24h 未开始异常 → 2.6 管理员核实释放 → 2.7 公开等待队列 → 2.8 站内消息单条标记已读。 |
+| **Epic 3（Story 3.1–3.9）** | `backlog` | 管理员紧急审核、人工调序、续期审核、直接延期、代归还、主动撤销、干预历史追溯、备份恢复演练及课程实验 A 准备。 |
 
-## 下一步
+## 下一步（供接续组员直接开始）
 
-先接收/合并Story2.1本地分支（尚未推送），然后将冲刺对应项从review标记done并接续Story2.2；不要重做Story1.1–1.3或重新实现申请受理。复现入口为`backend/src/test/java/org/lab/gpuqueue/allocation/RequestIntegrationTest.java`及`docs/development/runbook.md`的Story2.1章节；本机Maven使用`.local-data/verification-maven-settings.xml`和项目内缓存，未改全局设置。现有课程材料保留本地。实验A仍须在选定X/Y故事实现前准备，不将本次普通开发充作实验结果。
+1. **同步与建分支**：在 `main` 拉取最新代码后新建分支（例如 `git checkout -b codex/story-2-3`），使用 BMAD 流程推进 **Story 2.3：成员按卡确认开始使用**（冲刺键 `2-3-成员按卡确认开始使用`）。
+2. **Story 2.3 核心范围与接续要点**：
+   - 先完整阅读 `AGENTS.md`、`_bmad-output/implementation-artifacts/epic-2-context.md`、`_bmad-output/specs/spec-gpu-queue-system/SPEC.md`、`lifecycle-commands.md` 及 `_bmad-output/planning-artifacts/epics.md` 中 Story 2.3 的 7 组验收标准。
+   - **数据库迁移（`V5`）**：切勿修改已交付的 `V1`–`V4`。当前 `allocations` 仅含 `id, queue_item_id, gpu_id, allocated_at, expires_at`；Story 2.3 可新增 `V5` 为 `allocations` 增加 `started_at TIMESTAMP(9) WITH TIME ZONE`，并按需更新 `audit_logs` 的 `action` / `actor_type` 约束以记录成员确认开始审计。
+   - **业务与一致性边界**：写入必须走 `AllocationService` 唯一事务入口；按 `allocation_id` 校验当前登录 `MEMBER` 本人归属及 `current_allocations` 当前有效映射；确认开始使用可注入 UTC `Clock` 记录首次 `started_at`，**不得重置 `expires_at` 或更换 `allocation_id`**，单卡确认不影响同申请其他卡；对已开始的有效名额重复提交返回已开始/已处理且保留首次 `started_at`（不重复写成功审计/消息）；对已不在 `current_allocations` 的旧名额（含同一成员两轮获配）返回失效/已处理且不恢复旧名额、不影响当前后继名额。
+   - **前端与名额状态映射**：更新 `AllocationRepository`/`RequestRepository` 与 `OrdinaryRequests.vue` 的名额状态推导（`started_at` 非空时显示已开始及开始时间，未开始名额提供逐卡“确认开始”按钮与 CSRF 表单提交）。
+3. **本地构建、测试与环境注意事项**：
+   - 构建与全量测试命令见 [运行手册](docs/development/runbook.md) 的 Story 2.2 章节（`npm.cmd --prefix frontend run build` 后执行 `mvn.cmd -f backend/pom.xml verify`；若本机全局 Maven 缓存或镜像受限，可按运行手册在忽略目录 `.local-data/` 生成独立 `verification-maven-settings.xml` 运行）。
+   - 切勿提交 `.local-data/`、数据库文件、凭据或本地未跟踪课程材料（如 `_bmad-output/course-source/`）。
+   - **课程实验 A 提醒**：D047、D048 已确定本地 H2 顺序验收；若后续选定某对难度相当的故事作为实验 A 的 X/Y 对照（见 Story 3.9），必须在该故事开始实现前完成实验 A 对照方案准备，不将日常普通开发充作干净会话实验结果。
 
 ## 交接历史
 
@@ -39,3 +48,6 @@
 | 2026-11-25 | 核对GitHub同步后的进度；创建codex/story-2-1，编译Epic2上下文，完成Story2.1实现规格及七组待执行验收记录。冲刺文件validate=true，差异格式检查通过；规格处于draft，尚无业务代码或运行验收；本轮未提交或推送。 |
 | 2026-11-25 | 用户批准 Story 2.1 后完成普通申请和本人逐卡等待页面；18 项临时 H2 集成测试、前端构建及实际 Edge 页面/失败回滚/进程重启/建号回归通过，证据及运行手册已更新。故事进入 review，待主线独立审阅；测试服务停止，未提交或推送。 |
 | 2026-11-25 | 三个独立层审阅及逐条裁决完成，修正列表加载重叠、503诊断、V2旧账号升级验证并补证据编号。主线重新完整构建前端和离线Maven verify（18项全通过），冲刺校验通过；规格done、冲刺review，按BMAD创建本地提交供接收，未推送。 |
+| 2026-11-25 | 推送 `codex/story-2-1` 至 GitHub，创建并合并 PR #6（`94e6f4a`），将 Story 2.1 冲刺状态标记为 `done`，建立 `codex/story-2-2` 接续 Story 2.2。 |
+| 2026-11-25 | 按已批准 `spec-2-2-allocate-ordinary-requests.md` 实现 V4 迁移、队列排序策略、唯一名额分配事务（含审计转换序号与获配站内消息）、60s 扫描与启动补查、本人名额/消息只读接口及成员页面；通过前端构建、26 项独立临时 H2 集成测试及浏览器部分获配/异时期限/停服重试/重启补查/建号回归验收，更新证据与运行手册，停止测试服务。 |
+| 2026-11-26 | 完成 Story 2.2 三层独立代码审阅与 22 条逐项裁决加固，重新通过前端完整构建与离线 Maven `verify`（26 项全通过，提交 `6b647cf`）；标记 Story 2.2 为 `done`，整理组员交接说明并推送 `codex/story-2-2` 创建 PR 合入 `main`，下一待办为 Story 2.3。 |

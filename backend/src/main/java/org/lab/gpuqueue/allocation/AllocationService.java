@@ -1,27 +1,39 @@
 package org.lab.gpuqueue.allocation;
 
 import java.time.Clock;
+import java.time.Duration;
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 
+import org.lab.gpuqueue.allocation.AllocationRepository.AllocationView;
+import org.lab.gpuqueue.allocation.AllocationRepository.InboxMessageView;
 import org.lab.gpuqueue.allocation.RequestRepository.RequestView;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 @Service
 public class AllocationService {
     private final RequestRepository requests;
+    private final AllocationRepository allocations;
+    private final QueueOrderingPolicy orderingPolicy;
     private final Clock clock;
 
-    public AllocationService(RequestRepository requests, Clock clock) {
+    public AllocationService(RequestRepository requests,
+                             AllocationRepository allocations,
+                             QueueOrderingPolicy orderingPolicy,
+                             Clock clock) {
         this.requests = requests;
+        this.allocations = allocations;
+        this.orderingPolicy = orderingPolicy;
         this.clock = clock;
     }
 
-    // All queue writes enter here; returning from the proxy also commits the whole request.
+    // All queue and quota writes enter here; returning from the proxy commits or rolls back atomically.
     @Transactional(rollbackFor = Exception.class)
     public RequestView submitOrdinaryRequest(UUID memberId, List<String> rawGpuIds, String rawDurationHours) {
         int durationHours = parseInteger(rawDurationHours, "durationHours", "预计时长须为 1 至 72 的整数小时。");
@@ -40,10 +52,29 @@ public class AllocationService {
             }
             gpuIds.add(gpuId);
         }
-        if (!requests.allGpusExist(gpuIds)) {
-            throw new InvalidRequest("gpuIds", "所选 GPU 不存在，请刷新后重新选择。");
+        gpuIds.sort(Integer::compareTo);
+        for (Integer gpuId : gpuIds) {
+            if (!allocations.lockGpu(gpuId)) {
+                throw new InvalidRequest("gpuIds", "所选 GPU 不存在，请刷新后重新选择。");
+            }
         }
-        return requests.create(memberId, clock.instant(), durationHours, gpuIds);
+        Instant now = clock.instant();
+        UUID requestId = requests.create(memberId, now, durationHours, gpuIds);
+        for (Integer gpuId : gpuIds) {
+            allocateGpuIfIdle(gpuId, now);
+        }
+        return requests.findForMember(memberId, requestId)
+                .orElseThrow(() -> new DataIntegrityViolationException("Missing persisted request " + requestId));
+    }
+
+    @Transactional(rollbackFor = Exception.class)
+    public Optional<AllocationView> allocateIfIdle(int gpuId) {
+        return allocateGpuIfIdle(gpuId, clock.instant());
+    }
+
+    @Transactional(readOnly = true)
+    public List<Integer> findIdleCandidateGpuIds() {
+        return allocations.findIdleCandidateGpuIds();
     }
 
     @Transactional(readOnly = true)
@@ -54,6 +85,69 @@ public class AllocationService {
     @Transactional(readOnly = true)
     public Optional<RequestView> findOwnRequest(UUID memberId, UUID requestId) {
         return requests.findForMember(memberId, requestId);
+    }
+
+    @Transactional(readOnly = true)
+    public List<AllocationView> listOwnAllocations(UUID memberId) {
+        return allocations.listAllocationsForMember(memberId);
+    }
+
+    @Transactional(readOnly = true)
+    public Optional<AllocationView> findOwnAllocation(UUID memberId, UUID allocationId) {
+        return allocations.findAllocationForMember(memberId, allocationId);
+    }
+
+    @Transactional(readOnly = true)
+    public List<InboxMessageView> listOwnMessages(UUID memberId) {
+        return allocations.listMessagesForMember(memberId);
+    }
+
+    @Transactional(readOnly = true)
+    public Optional<InboxMessageView> findOwnMessage(UUID memberId, UUID messageId) {
+        return allocations.findMessageForMember(memberId, messageId);
+    }
+
+    private Optional<AllocationView> allocateGpuIfIdle(int gpuId, Instant evaluationTime) {
+        if (!allocations.lockGpu(gpuId) || allocations.hasCurrentAllocation(gpuId)) {
+            return Optional.empty();
+        }
+        var candidates = allocations.findWaitingCandidates(gpuId);
+        var winnerOptional = orderingPolicy.selectNext(candidates, evaluationTime);
+        if (winnerOptional.isEmpty()) {
+            return Optional.empty();
+        }
+        var winner = winnerOptional.get();
+        UUID allocationId = UUID.randomUUID();
+        Instant expiresAt = evaluationTime.plus(Duration.ofHours(winner.durationHours()));
+        allocations.markQueueItemAllocated(winner.queueItemId(), gpuId);
+        allocations.insertAllocation(allocationId, winner.queueItemId(), gpuId, evaluationTime, expiresAt);
+        allocations.insertCurrentAllocation(gpuId, allocationId);
+        String beforeState = "queueItemStatus=WAITING;currentAllocation=NONE";
+        String afterState = "queueItemStatus=ALLOCATED;allocationId=" + allocationId
+                + ";allocationStatus=UNSTARTED;expiresAt=" + expiresAt;
+        long transitionSeq = allocations.insertAuditLog(
+                evaluationTime,
+                winner.requestId(),
+                winner.queueItemId(),
+                allocationId,
+                gpuId,
+                beforeState,
+                afterState);
+        String title = "GPU " + gpuId + " 使用名额已获配";
+        String body = "申请 " + winner.requestId() + " 已获配 GPU " + gpuId
+                + " 使用名额（未开始）。名额仅记录使用权，不代表硬件实际空闲或训练任务已启动；使用前请先按约定确认开始。";
+        allocations.insertInboxMessage(
+                UUID.randomUUID(),
+                winner.memberId(),
+                transitionSeq,
+                allocationId,
+                winner.requestId(),
+                gpuId,
+                title,
+                body,
+                evaluationTime);
+        return Optional.of(allocations.findAllocationForMember(winner.memberId(), allocationId)
+                .orElseThrow(() -> new DataIntegrityViolationException("Missing persisted allocation " + allocationId)));
     }
 
     private int parseInteger(String value, String field, String message) {

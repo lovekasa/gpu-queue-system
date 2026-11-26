@@ -1,5 +1,6 @@
 package org.lab.gpuqueue.allocation;
 
+import java.lang.reflect.UndeclaredThrowableException;
 import java.net.URI;
 import java.util.Set;
 import java.util.UUID;
@@ -70,9 +71,20 @@ class RequestController {
         return ResponseEntity.badRequest().body(new FieldError(exception.field(), exception.getMessage()));
     }
 
-    @ExceptionHandler({DataAccessException.class, TransactionException.class})
+    @ExceptionHandler({DataAccessException.class, TransactionException.class, UndeclaredThrowableException.class})
     ResponseEntity<Void> databaseUnavailable(RuntimeException exception, HttpServletRequest request) {
-        log.error("Request database operation failed: {} {}", request.getMethod(), request.getRequestURI(), exception);
+        Throwable cause = exception;
+        if (exception instanceof UndeclaredThrowableException undeclared
+                && undeclared.getUndeclaredThrowable() != null) {
+            cause = undeclared.getUndeclaredThrowable();
+            if (cause instanceof RuntimeException runtimeException) {
+                throw runtimeException;
+            }
+            if (cause instanceof Error error) {
+                throw error;
+            }
+        }
+        log.error("Request database operation failed: {} {}", request.getMethod(), request.getRequestURI(), cause);
         return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE).build();
     }
 

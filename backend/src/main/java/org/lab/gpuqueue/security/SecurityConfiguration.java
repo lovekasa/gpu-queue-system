@@ -34,7 +34,10 @@ public class SecurityConfiguration {
                         .requestMatchers(HttpMethod.GET, "/api/me", "/api/gpus").hasAnyRole("ADMIN", "MEMBER")
                         .requestMatchers(HttpMethod.POST, "/api/admin/members").hasRole("ADMIN")
                         .requestMatchers(HttpMethod.POST, "/api/requests").hasRole("MEMBER")
-                        .requestMatchers(HttpMethod.GET, "/api/requests", "/api/requests/*").hasRole("MEMBER")
+                        .requestMatchers(HttpMethod.GET,
+                                "/api/requests", "/api/requests/*",
+                                "/api/allocations", "/api/allocations/*",
+                                "/api/messages", "/api/messages/*").hasRole("MEMBER")
                         .requestMatchers("/api/**").denyAll()
                         .anyRequest().permitAll())
                 .exceptionHandling(exceptions -> exceptions
