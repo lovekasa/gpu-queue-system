@@ -519,6 +519,54 @@ public class AllocationRepository {
                 .optional();
     }
 
+    List<Integer> listAllGpuIds() {
+        return jdbc.sql("SELECT id FROM gpus ORDER BY id ASC")
+                .query(Integer.class)
+                .list();
+    }
+
+    List<NamedWaitingCandidate> findNamedWaitingCandidates(int gpuId) {
+        return jdbc.sql("""
+                SELECT qi.id AS queue_item_id,
+                       r.id AS request_id,
+                       r.member_id,
+                       acc.display_name AS member_name,
+                       qi.gpu_id,
+                       r.duration_hours,
+                       r.submitted_at,
+                       r.receive_seq
+                FROM queue_items qi
+                JOIN requests r ON r.id = qi.request_id
+                JOIN accounts acc ON acc.id = r.member_id
+                WHERE qi.gpu_id = :gpuId AND qi.status = 'WAITING'
+                """)
+                .param("gpuId", gpuId)
+                .query((row, index) -> new NamedWaitingCandidate(
+                        new WaitingCandidate(
+                                row.getObject("queue_item_id", UUID.class),
+                                row.getObject("request_id", UUID.class),
+                                row.getObject("member_id", UUID.class),
+                                row.getInt("gpu_id"),
+                                row.getInt("duration_hours"),
+                                row.getObject("submitted_at", OffsetDateTime.class).toInstant(),
+                                row.getLong("receive_seq")),
+                        row.getString("member_name")))
+                .list();
+    }
+
+    boolean markMessageRead(UUID memberId, UUID messageId, Instant readAt) {
+        int updated = jdbc.sql("""
+                UPDATE inbox_messages
+                SET read_at = :readAt
+                WHERE id = :messageId AND recipient_id = :memberId AND read_at IS NULL
+                """)
+                .param("readAt", readAt.atOffset(ZoneOffset.UTC))
+                .param("messageId", messageId)
+                .param("memberId", memberId)
+                .update();
+        return updated == 1;
+    }
+
     List<InboxMessageView> listMessagesForMember(UUID memberId) {
         return jdbc.sql("""
                 SELECT m.id,
@@ -531,7 +579,8 @@ public class AllocationRepository {
                        m.body,
                        a.allocated_at,
                        a.expires_at,
-                       m.created_at
+                       m.created_at,
+                       m.read_at
                 FROM inbox_messages m
                 JOIN allocations a ON a.id = m.allocation_id AND a.gpu_id = m.gpu_id
                 WHERE m.recipient_id = :memberId
@@ -554,7 +603,8 @@ public class AllocationRepository {
                        m.body,
                        a.allocated_at,
                        a.expires_at,
-                       m.created_at
+                       m.created_at,
+                       m.read_at
                 FROM inbox_messages m
                 JOIN allocations a ON a.id = m.allocation_id AND a.gpu_id = m.gpu_id
                 WHERE m.recipient_id = :memberId AND m.id = :messageId
@@ -597,6 +647,7 @@ public class AllocationRepository {
     }
 
     private InboxMessageView readMessage(ResultSet row, int index) throws SQLException {
+        OffsetDateTime rawReadAt = row.getObject("read_at", OffsetDateTime.class);
         return new InboxMessageView(
                 row.getString("id"),
                 row.getString("transition_seq"),
@@ -608,8 +659,15 @@ public class AllocationRepository {
                 row.getString("body"),
                 row.getObject("allocated_at", OffsetDateTime.class).toInstant(),
                 row.getObject("expires_at", OffsetDateTime.class).toInstant(),
-                row.getObject("created_at", OffsetDateTime.class).toInstant());
+                row.getObject("created_at", OffsetDateTime.class).toInstant(),
+                rawReadAt != null ? rawReadAt.toInstant() : null);
     }
+
+    public record NamedWaitingCandidate(WaitingCandidate candidate, String memberName) {}
+
+    public record PublicQueueEntryView(int position, String memberName) {}
+
+    public record PublicGpuQueueView(String gpuId, List<PublicQueueEntryView> waiting) {}
 
     @JsonInclude(JsonInclude.Include.NON_NULL)
     public record PendingVerificationView(
@@ -690,6 +748,7 @@ public class AllocationRepository {
             String status
     ) {}
 
+    @JsonInclude(JsonInclude.Include.NON_NULL)
     public record InboxMessageView(
             String id,
             String transitionSeq,
@@ -701,6 +760,7 @@ public class AllocationRepository {
             String body,
             Instant allocatedAt,
             Instant expiresAt,
-            Instant createdAt
+            Instant createdAt,
+            Instant readAt
     ) {}
 }

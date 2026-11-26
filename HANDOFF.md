@@ -19,7 +19,8 @@
 | **Story 2.4：成员按卡确认完成并归还名额** | `review` | 已在同分支完成实现与验证：交付 `V6__allocation_return.sql`、`AllocationService#confirmReturn`（同事务归还、移除当前映射、落归还审计并立即按序交接给合法队首）、`POST /api/allocations/{id}/return` 及前端逐卡“确认完成并归还”与历史状态展示；前端构建与 33 项独立 H2 集成测试（`AllocationReturnIntegrationTest` 3 项 + 既有 30 项）全部通过，待推送合并。证据见 [story-2.4.md](_bmad-output/implementation-artifacts/evidence/story-2.4.md)。 |
 | **Story 2.5：自动处理到期与未开始异常** | `review` | 已在同分支完成实现与验证：交付 `V7__allocation_expiry.sql`、`AllocationService#processExpiryForAllocation` 三分支处理（<24h 未开始到期自动释放并交接、>=24h 满 24h 未开始标异常保留、已开始到期标逾期保留）、`AllocationScanner` 扩展与前端状态展示；36 项独立 H2 集成测试全部通过，待推送合并。证据见 [story-2.5.md](_bmad-output/implementation-artifacts/evidence/story-2.5.md)。 |
 | **Story 2.6：管理员核实异常或逾期后释放名额** | `review` | 已在同分支完成实现与验证：交付 `V8__admin_verified_release.sql`、`GET /api/admin/allocations/pending-verification` 与 `POST /api/admin/allocations/{id}/verified-release`（仅 `ADMIN`、非空理由、`seenStatus` 冲突 `409`、同事务审计/通知与后继交接）及管理员前端面板 `AdminVerifiedRelease.vue`；38 项独立 H2 集成测试全部通过，待推送合并。证据见 [story-2.6.md](_bmad-output/implementation-artifacts/evidence/story-2.6.md)。 |
-| **Epic 2 剩余故事（Story 2.7–2.8）** | `backlog` | 依次为：2.7 公开等待队列 → 2.8 站内消息单条标记已读。 |
+| **Story 2.7：成员查看各 GPU 的公开等待队列** | `review` | 已在同分支完成实现与验证：交付 `GET /api/queues`（复用 `QueueOrderingPolicy`，严格仅返回 `position` 与 `memberName` 两字段）及前端 `PublicQueues.vue`；40 项独立 H2 集成测试全部通过，待推送合并。证据见 [story-2.7.md](_bmad-output/implementation-artifacts/evidence/story-2.7.md)。 |
+| **Story 2.8：成员查看站内消息并标记已读** | `review` | 已在同分支完成实现与验证：交付 `V9__inbox_read_at.sql`、`POST /api/messages/{id}/read`（仅限本人 `MEMBER` + CSRF，显式标记已读且重复调用幂等保留首次 `read_at`）及前端未读/已读状态与逐条“标记已读”按钮；40 项独立 H2 集成测试全部通过，待推送合并。证据见 [story-2.8.md](_bmad-output/implementation-artifacts/evidence/story-2.8.md)。 |
 | **Epic 3（Story 3.1–3.9）** | `backlog` | 管理员紧急审核、人工调序、续期审核、直接延期、代归还、主动撤销、干预历史追溯、备份恢复演练及课程实验 A 准备。 |
 
 ## 下一步（供接续组员直接开始）

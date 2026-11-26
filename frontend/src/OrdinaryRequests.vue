@@ -8,6 +8,7 @@ import {
   getOwnAllocations,
   getOwnMessages,
   getOwnRequests,
+  markInboxMessageRead,
   submitOrdinaryRequest,
   type Allocation,
   type AllocationStatus,
@@ -38,8 +39,10 @@ const submitFailure = ref('')
 const created = ref<OrdinaryRequest>()
 const startingAllocationId = ref<string | null>(null)
 const returningAllocationId = ref<string | null>(null)
+const markingMessageId = ref<string | null>(null)
 const startNotice = ref('')
 const startError = ref('')
+const messageError = ref('')
 
 let catalogInFlight = false
 let requestsInFlight = false
@@ -196,6 +199,26 @@ async function confirmReturn(allocation: Allocation) {
     }
   } finally {
     returningAllocationId.value = null
+  }
+}
+
+async function markRead(message: InboxMessage) {
+  if (markingMessageId.value !== null || props.disabled || messagesState.value === 'loading') return
+  markingMessageId.value = message.id
+  messageError.value = ''
+  try {
+    await markInboxMessageRead(message.id)
+    await refreshMessages()
+  } catch (cause) {
+    if (cause instanceof ApiError && cause.status === 401) {
+      messageError.value = '登录已失效，请重新登录。'
+    } else if (cause instanceof ApiError && cause.status === 403) {
+      messageError.value = '无法通过权限或安全校验，请重新登录后重试。'
+    } else {
+      messageError.value = '标记已读失败，请重试。'
+    }
+  } finally {
+    markingMessageId.value = null
   }
 }
 
@@ -399,7 +422,8 @@ onMounted(() => {
     </ol>
 
     <h2 id="inbox-messages-title">站内消息</h2>
-    <p>展示本人获配通知，时间按上海时间（Asia/Shanghai）显示。</p>
+    <p>展示本人通知，仅在明确点击“标记已读”后记录已读时间；查询列表不会自动标记已读。时间按上海时间（Asia/Shanghai）显示。</p>
+    <p v-if="messageError" class="error" role="alert">{{ messageError }}</p>
     <button
       type="button"
       :disabled="messagesState === 'loading' || submitting || disabled"
@@ -415,6 +439,13 @@ onMounted(() => {
         <p class="message-title"><strong>{{ message.title }}</strong></p>
         <p class="message-body">{{ message.body }}</p>
         <dl>
+          <dt>已读状态</dt>
+          <dd>
+            <template v-if="message.readAt">
+              已读（<time :datetime="message.readAt">{{ formatTime(message.readAt) }}</time>）
+            </template>
+            <template v-else>未读</template>
+          </dd>
           <dt>消息编号</dt><dd>{{ message.id }}</dd>
           <dt>转换序号</dt><dd>{{ message.transitionSeq }}</dd>
           <dt>指定 GPU</dt><dd>GPU {{ message.gpuId }}</dd>
@@ -424,6 +455,15 @@ onMounted(() => {
           <dt>到期时间</dt><dd><time :datetime="message.expiresAt">{{ formatTime(message.expiresAt) }}</time></dd>
           <dt>通知时间</dt><dd><time :datetime="message.createdAt">{{ formatTime(message.createdAt) }}</time></dd>
         </dl>
+        <div v-if="!message.readAt">
+          <button
+            type="button"
+            :disabled="markingMessageId !== null || disabled"
+            @click="markRead(message)"
+          >
+            {{ markingMessageId === message.id ? '正在标记…' : '标记已读' }}
+          </button>
+        </div>
       </li>
     </ol>
   </section>

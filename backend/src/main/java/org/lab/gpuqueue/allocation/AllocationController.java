@@ -7,6 +7,8 @@ import java.util.UUID;
 import jakarta.servlet.http.HttpServletRequest;
 import org.lab.gpuqueue.allocation.AllocationRepository.AllocationView;
 import org.lab.gpuqueue.allocation.AllocationRepository.InboxMessageView;
+import org.lab.gpuqueue.allocation.AllocationRepository.PublicGpuQueueView;
+import org.lab.gpuqueue.allocation.AllocationService.MarkMessageReadResult;
 import org.lab.gpuqueue.allocation.AllocationService.ReturnAllocationResult;
 import org.lab.gpuqueue.allocation.AllocationService.StartAllocationResult;
 import org.lab.gpuqueue.security.AccountPrincipal;
@@ -30,6 +32,25 @@ class AllocationController {
 
     AllocationController(AllocationService allocations) {
         this.allocations = allocations;
+    }
+
+    @GetMapping("/api/queues")
+    ResponseEntity<List<PublicGpuQueueView>> listPublicQueues() {
+        return ResponseEntity.ok(allocations.listPublicQueues());
+    }
+
+    @PostMapping("/api/messages/{id}/read")
+    ResponseEntity<MarkMessageReadResult> markMessageRead(@AuthenticationPrincipal AccountPrincipal principal,
+                                                          @PathVariable String id) {
+        UUID messageId;
+        try {
+            messageId = UUID.fromString(id);
+        } catch (IllegalArgumentException exception) {
+            return ResponseEntity.notFound().build();
+        }
+        return allocations.markMessageRead(UUID.fromString(principal.id()), messageId)
+                .map(ResponseEntity::ok)
+                .orElseGet(() -> ResponseEntity.notFound().build());
     }
 
     @GetMapping("/api/allocations")

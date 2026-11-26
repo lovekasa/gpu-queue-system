@@ -11,7 +11,10 @@ import java.util.UUID;
 
 import org.lab.gpuqueue.allocation.AllocationRepository.AllocationView;
 import org.lab.gpuqueue.allocation.AllocationRepository.InboxMessageView;
+import org.lab.gpuqueue.allocation.AllocationRepository.NamedWaitingCandidate;
 import org.lab.gpuqueue.allocation.AllocationRepository.PendingVerificationView;
+import org.lab.gpuqueue.allocation.AllocationRepository.PublicGpuQueueView;
+import org.lab.gpuqueue.allocation.AllocationRepository.PublicQueueEntryView;
 import org.lab.gpuqueue.allocation.RequestRepository.RequestView;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Service;
@@ -336,6 +339,45 @@ public class AllocationService {
     }
 
     @Transactional(readOnly = true)
+    public List<PublicGpuQueueView> listPublicQueues() {
+        Instant evaluationTime = clock.instant();
+        var gpuIds = allocations.listAllGpuIds();
+        var result = new ArrayList<PublicGpuQueueView>(gpuIds.size());
+        for (Integer gpuId : gpuIds) {
+            var namedCandidates = allocations.findNamedWaitingCandidates(gpuId);
+            var nameByQueueItem = new java.util.HashMap<UUID, String>(namedCandidates.size());
+            var candidates = new ArrayList<QueueOrderingPolicy.WaitingCandidate>(namedCandidates.size());
+            for (NamedWaitingCandidate named : namedCandidates) {
+                nameByQueueItem.put(named.candidate().queueItemId(), named.memberName());
+                candidates.add(named.candidate());
+            }
+            var ordered = orderingPolicy.order(candidates, evaluationTime);
+            var entries = new ArrayList<PublicQueueEntryView>(ordered.size());
+            for (int i = 0; i < ordered.size(); i++) {
+                entries.add(new PublicQueueEntryView(i + 1, nameByQueueItem.get(ordered.get(i).queueItemId())));
+            }
+            result.add(new PublicGpuQueueView(Integer.toString(gpuId), entries));
+        }
+        return result;
+    }
+
+    @Transactional(rollbackFor = Exception.class)
+    public Optional<MarkMessageReadResult> markMessageRead(UUID memberId, UUID messageId) {
+        var existing = allocations.findMessageForMember(memberId, messageId);
+        if (existing.isEmpty()) {
+            return Optional.empty();
+        }
+        if (existing.get().readAt() != null) {
+            return Optional.of(new MarkMessageReadResult(existing.get(), true));
+        }
+        Instant now = clock.instant();
+        boolean updated = allocations.markMessageRead(memberId, messageId, now);
+        var current = allocations.findMessageForMember(memberId, messageId)
+                .orElseThrow(() -> new DataIntegrityViolationException("Missing inbox message " + messageId));
+        return Optional.of(new MarkMessageReadResult(current, !updated));
+    }
+
+    @Transactional(readOnly = true)
     public List<InboxMessageView> listOwnMessages(UUID memberId) {
         return allocations.listMessagesForMember(memberId);
     }
@@ -405,6 +447,8 @@ public class AllocationService {
 
     public record VerifiedReleaseResult(String allocationId, String gpuId, Instant endedAt,
                                         String endReason, boolean alreadyEnded) {}
+
+    public record MarkMessageReadResult(InboxMessageView message, boolean alreadyRead) {}
 
     static class StatusConflict extends RuntimeException {
         StatusConflict(String message) {

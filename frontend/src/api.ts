@@ -76,6 +76,22 @@ export interface InboxMessage {
   allocatedAt: string
   expiresAt: string
   createdAt: string
+  readAt?: string
+}
+
+export interface MarkMessageReadResult {
+  message: InboxMessage
+  alreadyRead: boolean
+}
+
+export interface PublicQueueEntry {
+  position: number
+  memberName: string
+}
+
+export interface PublicGpuQueue {
+  gpuId: string
+  waiting: PublicQueueEntry[]
 }
 
 interface Csrf {
@@ -128,6 +144,16 @@ export async function getOwnAllocations(): Promise<Allocation[]> {
 
 export async function getOwnMessages(): Promise<InboxMessage[]> {
   const response = await request('messages')
+  return response.json()
+}
+
+export async function markInboxMessageRead(messageId: string): Promise<MarkMessageReadResult> {
+  const response = await post(`messages/${encodeURIComponent(messageId)}/read`)
+  return response.json()
+}
+
+export async function getPublicQueues(): Promise<PublicGpuQueue[]> {
+  const response = await request('queues')
   return response.json()
 }
 
