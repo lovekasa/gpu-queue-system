@@ -9,6 +9,8 @@ import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 
+import com.fasterxml.jackson.annotation.JsonInclude;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.stereotype.Repository;
 
@@ -20,12 +22,7 @@ public class RequestRepository {
         this.jdbc = jdbc;
     }
 
-    boolean allGpusExist(List<Integer> gpuIds) {
-        return jdbc.sql("SELECT COUNT(*) FROM gpus WHERE id IN (:gpuIds)")
-                .param("gpuIds", gpuIds).query(Integer.class).single() == gpuIds.size();
-    }
-
-    RequestView create(UUID memberId, Instant submittedAt, int durationHours, List<Integer> gpuIds) {
+    UUID create(UUID memberId, Instant submittedAt, int durationHours, List<Integer> gpuIds) {
         UUID id = UUID.randomUUID();
         jdbc.sql("""
                 INSERT INTO requests (id, member_id, submitted_at, duration_hours)
@@ -41,7 +38,7 @@ public class RequestRepository {
                     """)
                     .param("id", UUID.randomUUID()).param("requestId", id).param("gpuId", gpuId).update();
         }
-        return findForMember(memberId, id).orElseThrow();
+        return id;
     }
 
     List<RequestView> listForMember(UUID memberId) {
@@ -62,16 +59,51 @@ public class RequestRepository {
 
     private RequestView readRequest(ResultSet row, int index) throws SQLException {
         UUID id = row.getObject("id", UUID.class);
-        var items = jdbc.sql("SELECT id, gpu_id, status FROM queue_items WHERE request_id = :id ORDER BY gpu_id")
+        var items = jdbc.sql("""
+                SELECT qi.id,
+                       qi.gpu_id,
+                       qi.status,
+                       a.id AS allocation_id,
+                       a.allocated_at,
+                       a.expires_at
+                FROM queue_items qi
+                LEFT JOIN allocations a ON a.queue_item_id = qi.id AND a.gpu_id = qi.gpu_id
+                WHERE qi.request_id = :id
+                ORDER BY qi.gpu_id
+                """)
                 .param("id", id)
-                .query((item, itemIndex) -> new QueueItemView(item.getString("id"),
-                        item.getString("gpu_id"), item.getString("status"))).list();
+                .query(this::readQueueItem)
+                .list();
         return new RequestView(id.toString(), row.getObject("submitted_at", OffsetDateTime.class).toInstant(),
                 row.getString("receive_seq"), row.getInt("duration_hours"), items);
+    }
+
+    private QueueItemView readQueueItem(ResultSet item, int index) throws SQLException {
+        String status = item.getString("status");
+        if ("ALLOCATED".equals(status)) {
+            UUID allocationId = item.getObject("allocation_id", UUID.class);
+            if (allocationId == null) {
+                throw new DataIntegrityViolationException("Missing allocation record for ALLOCATED queue item");
+            }
+            Instant allocatedAt = item.getObject("allocated_at", OffsetDateTime.class).toInstant();
+            Instant expiresAt = item.getObject("expires_at", OffsetDateTime.class).toInstant();
+            return new QueueItemView(
+                    item.getString("id"),
+                    item.getString("gpu_id"),
+                    status,
+                    allocationId.toString(),
+                    allocatedAt,
+                    expiresAt,
+                    "UNSTARTED");
+        }
+        return new QueueItemView(item.getString("id"), item.getString("gpu_id"), status, null, null, null, null);
     }
 
     public record RequestView(String id, Instant submittedAt, String receiveSeq, int durationHours,
                               List<QueueItemView> queueItems) {}
 
-    public record QueueItemView(String id, String gpuId, String status) {}
+    @JsonInclude(JsonInclude.Include.NON_NULL)
+    public record QueueItemView(String id, String gpuId, String status,
+                                String allocationId, Instant allocatedAt, Instant expiresAt,
+                                String allocationStatus) {}
 }

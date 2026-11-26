@@ -1,6 +1,6 @@
 # 开发交接入口
 
-更新时间为 2026-11-25（Asia/Shanghai）。三人顺序接续，不预设固定人员分工。
+更新时间为 2026-11-26（Asia/Shanghai）。三人顺序接续，不预设固定人员分工。
 
 ## 接手顺序
 
@@ -10,6 +10,7 @@
 
 ## 当前进度
 
+- 基线为 `4515b8df0f3cf9a177752897de3cebbbafd64804`，当前分支为 `codex/story-2-2`。Story 2.2 [实现规格](_bmad-output/implementation-artifacts/spec-2-2-allocate-ordinary-requests.md)已完成实现与三层独立审阅收敛，规格为 `done`，冲刺状态为 `review` 等待用户接收/合并。已交付 `V4__allocations.sql`、普通队列排序策略、唯一名额同事务分配（含 `transition_seq` 审计与获配站内消息）、60s 扫描与 `ApplicationReadyEvent` 启动补查、本人名额/消息只读 API 及成员三面板页面；26 项独立临时 H2 集成测试（0 失败/错误/跳过）、前端完整构建与浏览器及停服重启补查实测全部通过，详见 [Story 2.2 运行证据](_bmad-output/implementation-artifacts/evidence/story-2.2.md)。测试服务已停止，本地提交见 `git log -1`，未推送。
 - Story 2.1 [实现规格](_bmad-output/implementation-artifacts/spec-2-1-submit-request.md)已由 PR #6（`94e6f4a`）合入 `main`，冲刺状态标记为 `done`。已交付 V3、普通申请事务及本人查询、成员选卡/时长表单和逐卡等待列表；[运行证据](_bmad-output/implementation-artifacts/evidence/story-2.1.md)记录全部七组验收和修正复核。
 - Story 2.1 实际通过 18 项临时 H2 文件库集成测试（0失败/错误/跳过）、Vue 类型检查及构建、Edge 单/多卡和有意重复申请、刷新、真实写入失败反馈及整体回滚、查询失败重试、JAR进程重启后重新登录重读、管理员网页建号回归。缓存/临时库在忽略目录`.local-data/`，开发/演示库未访问。
 - D047、D048 已确认本地 H2 文件库及顺序验收。PRD、架构与 ADR、验证计划、epics.md、SPEC 及配套契约是现行依据。课程实验 A 仍待准备，候选故事与旧审阅记录留作历史。
@@ -20,7 +21,7 @@
 
 ## 下一步
 
-基于 `main`（`94e6f4a`）在 `codex/story-2-2` 接续 Story 2.2（按卡分配普通申请并查看本人名额）；不要重做 Story 1.1–2.1。复现入口为 `backend/src/test/java/org/lab/gpuqueue/allocation/RequestIntegrationTest.java` 及 `docs/development/runbook.md` 的 Story 2.1 章节；本机 Maven 使用 `.local-data/verification-maven-settings.xml` 和项目内缓存，未改全局设置。现有课程材料保留本地。实验 A 仍须在选定 X/Y 故事实现前准备，不将本次普通开发充作实验结果。
+先推送并接收/合并 `codex/story-2-2` 本地分支（尚未推送），然后将冲刺对应项从 `review` 标记为 `done` 并接续 Story 2.3（成员按卡确认开始使用）；不要重做 Story 1.1–2.2。复现入口为 `backend/src/test/java/org/lab/gpuqueue/allocation/AllocationIntegrationTest.java`、`RequestIntegrationTest.java` 及 `docs/development/runbook.md` 的 Story 2.2 章节；本机 Maven 使用 `.local-data/verification-maven-settings.xml` 和项目内缓存，未改全局设置，开发/演示目录未访问。现有课程材料保留本地。实验 A 仍须在选定 X/Y 故事实现前准备，不将本次普通开发充作实验结果。
 
 ## 交接历史
 
@@ -40,3 +41,5 @@
 | 2026-11-25 | 用户批准 Story 2.1 后完成普通申请和本人逐卡等待页面；18 项临时 H2 集成测试、前端构建及实际 Edge 页面/失败回滚/进程重启/建号回归通过，证据及运行手册已更新。故事进入 review，待主线独立审阅；测试服务停止，未提交或推送。 |
 | 2026-11-25 | 三个独立层审阅及逐条裁决完成，修正列表加载重叠、503诊断、V2旧账号升级验证并补证据编号。主线重新完整构建前端和离线Maven verify（18项全通过），冲刺校验通过；规格done、冲刺review，按BMAD创建本地提交供接收，未推送。 |
 | 2026-11-25 | 推送 `codex/story-2-1` 至 GitHub，创建并合并 PR #6（`94e6f4a`），将 Story 2.1 冲刺状态标记为 `done`，建立 `codex/story-2-2` 接续 Story 2.2。 |
+| 2026-11-25 | 按已批准 `spec-2-2-allocate-ordinary-requests.md` 实现 V4 迁移、队列排序策略、唯一名额分配事务（含审计转换序号与获配站内消息）、60s 扫描与启动补查、本人名额/消息只读接口及成员页面；通过前端构建、26 项独立临时 H2 集成测试及浏览器部分获配/异时期限/停服重试/重启补查/建号回归验收，更新证据与运行手册，停止测试服务，待独立审阅，未提交或推送。 |
+| 2026-11-26 | 完成 Story 2.2 三层独立代码审阅与 22 条逐项裁决，落地入队前升序加锁、`queue_items(status, gpu_id)` 索引、仓储 `DataIntegrityViolationException` 守卫、`startMode` 可测入口、前端状态/时间兜底与消息申请编号，以及测试全字段/历史失效名额/独立约束/启动接线断言；主线重新构建前端与离线 Maven `verify`（26 项全通过）并打包最新同源 JAR，冲刺校验通过，规格 `done`、冲刺 `review`，创建本地提交供接收，未推送。 |

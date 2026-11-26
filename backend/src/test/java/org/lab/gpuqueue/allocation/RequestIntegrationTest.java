@@ -4,6 +4,7 @@ import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Clock;
+import java.time.Duration;
 import java.time.Instant;
 import java.time.OffsetDateTime;
 import java.time.ZoneId;
@@ -65,10 +66,15 @@ class RequestIntegrationTest {
     static void database(DynamicPropertyRegistry properties) {
         Flyway.configure().dataSource(JDBC_URL, "sa", "").load().migrate();
         properties.add("queue.jdbc-url", () -> JDBC_URL + ";IFEXISTS=TRUE");
+        properties.add("queue.scanner.initial-delay-ms", () -> "86400000");
     }
 
     @BeforeEach
     void reset() {
+        jdbc.sql("DELETE FROM inbox_messages").update();
+        jdbc.sql("DELETE FROM audit_logs").update();
+        jdbc.sql("DELETE FROM current_allocations").update();
+        jdbc.sql("DELETE FROM allocations").update();
         jdbc.sql("DELETE FROM queue_items").update();
         jdbc.sql("DELETE FROM requests").update();
         jdbc.sql("DELETE FROM accounts").update();
@@ -80,29 +86,46 @@ class RequestIntegrationTest {
     }
 
     @Test
-    void acceptsSingleAndMultipleCardsWithBoundaryDurationsAndNoAllocationSideEffects() throws Exception {
+    void acceptsSingleAndMultipleCardsWithBoundaryDurationsAndPerCardAllocation() throws Exception {
         var session = login("member");
         var single = submit(session, List.of("2"), "1", 201);
-        var multi = submit(session, List.of("3", "1"), "24", 201);
+        var multi = submit(session, List.of("3", "2"), "24", 201);
         var maximum = submit(session, List.of("10"), "72", 201);
         assertThat(single.path("durationHours").asInt()).isEqualTo(1);
+        assertThat(single.path("queueItems").get(0).path("status").asText()).isEqualTo("ALLOCATED");
+        assertThat(single.path("queueItems").get(0).path("expiresAt").asText())
+                .isEqualTo(BASE_TIME.plus(Duration.ofHours(1)).toString());
         assertThat(maximum.path("durationHours").asInt()).isEqualTo(72);
+        assertThat(maximum.path("queueItems").get(0).path("status").asText()).isEqualTo("ALLOCATED");
+        assertThat(maximum.path("queueItems").get(0).path("expiresAt").asText())
+                .isEqualTo(BASE_TIME.plus(Duration.ofHours(72)).toString());
         assertThat(multi.path("id").isTextual()).isTrue();
         assertThat(multi.path("receiveSeq").isTextual()).isTrue();
         assertThat(multi.path("submittedAt").asText()).isEqualTo(BASE_TIME.toString());
         assertThat(multi.path("durationHours").asInt()).isEqualTo(24);
         assertThat(multi.path("queueItems").size()).isEqualTo(2);
-        assertThat(multi.path("queueItems").get(0).path("gpuId").asText()).isEqualTo("1");
-        assertThat(multi.path("queueItems").get(1).path("gpuId").asText()).isEqualTo("3");
-        multi.path("queueItems").forEach(item -> {
-            assertThat(item.path("id").isTextual()).isTrue();
-            assertThat(item.path("gpuId").isTextual()).isTrue();
-            assertThat(item.path("status").asText()).isEqualTo("WAITING");
-            assertThat(item.size()).isEqualTo(3);
-        });
+        var waitingBusyCard = multi.path("queueItems").get(0);
+        assertThat(waitingBusyCard.path("id").isTextual()).isTrue();
+        assertThat(waitingBusyCard.path("gpuId").asText()).isEqualTo("2");
+        assertThat(waitingBusyCard.path("status").asText()).isEqualTo("WAITING");
+        assertThat(waitingBusyCard.size()).isEqualTo(3);
+        var allocatedIdleCard = multi.path("queueItems").get(1);
+        assertThat(allocatedIdleCard.path("id").isTextual()).isTrue();
+        assertThat(allocatedIdleCard.path("gpuId").asText()).isEqualTo("3");
+        assertThat(allocatedIdleCard.path("status").asText()).isEqualTo("ALLOCATED");
+        assertThat(allocatedIdleCard.path("allocationId").isTextual()).isTrue();
+        assertThat(allocatedIdleCard.path("allocatedAt").asText()).isEqualTo(BASE_TIME.toString());
+        assertThat(allocatedIdleCard.path("expiresAt").asText())
+                .isEqualTo(BASE_TIME.plus(Duration.ofHours(24)).toString());
+        assertThat(allocatedIdleCard.path("allocationStatus").asText()).isEqualTo("UNSTARTED");
+        assertThat(allocatedIdleCard.size()).isEqualTo(7);
         assertThat(multi.size()).isEqualTo(5);
         assertThat(count("requests")).isEqualTo(3);
         assertThat(count("queue_items")).isEqualTo(4);
+        assertThat(count("allocations")).isEqualTo(3);
+        assertThat(count("current_allocations")).isEqualTo(3);
+        assertThat(count("audit_logs")).isEqualTo(3);
+        assertThat(count("inbox_messages")).isEqualTo(3);
         assertThat(jdbc.sql("SELECT member_id FROM requests WHERE id = :id")
                 .param("id", UUID.fromString(multi.path("id").asText())).query(UUID.class).single()).isEqualTo(MEMBER);
         var savedTime = jdbc.sql("SELECT submitted_at FROM requests WHERE id = :id")
@@ -231,6 +254,8 @@ class RequestIntegrationTest {
             submit(session, List.of("1", "2"), "24", 503);
             assertThat(count("requests")).isEqualTo(1);
             assertThat(count("queue_items")).isEqualTo(1);
+            assertThat(count("allocations")).isEqualTo(1);
+            assertThat(count("current_allocations")).isEqualTo(1);
             assertThat(read(mvc.perform(get("/api/requests/" + existing.path("id").asText()).session(session))
                     .andExpect(status().isOk()).andReturn().getResponse().getContentAsString())).isEqualTo(existing);
         } finally {
@@ -239,6 +264,8 @@ class RequestIntegrationTest {
         submit(session, List.of("1", "2"), "24", 201);
         assertThat(count("requests")).isEqualTo(2);
         assertThat(count("queue_items")).isEqualTo(3);
+        assertThat(count("allocations")).isEqualTo(3);
+        assertThat(count("current_allocations")).isEqualTo(3);
     }
 
     @Test

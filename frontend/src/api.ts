@@ -15,12 +15,49 @@ export interface FieldError {
   message: string
 }
 
+export type AllocationStatus = 'UNSTARTED'
+
+export interface QueueItem {
+  id: string
+  gpuId: string
+  status: 'WAITING' | 'ALLOCATED'
+  allocationId?: string
+  allocatedAt?: string
+  expiresAt?: string
+  allocationStatus?: AllocationStatus
+}
+
 export interface OrdinaryRequest {
   id: string
   submittedAt: string
   receiveSeq: string
   durationHours: number
-  queueItems: { id: string; gpuId: string; status: 'WAITING' }[]
+  queueItems: QueueItem[]
+}
+
+export interface Allocation {
+  id: string
+  requestId: string
+  queueItemId: string
+  gpuId: string
+  durationHours: number
+  allocatedAt: string
+  expiresAt: string
+  status: AllocationStatus
+}
+
+export interface InboxMessage {
+  id: string
+  transitionSeq: string
+  type: 'ALLOCATED'
+  requestId: string
+  allocationId: string
+  gpuId: string
+  title: string
+  body: string
+  allocatedAt: string
+  expiresAt: string
+  createdAt: string
 }
 
 interface Csrf {
@@ -63,6 +100,16 @@ export async function getGpus(): Promise<Gpu[]> {
 
 export async function getOwnRequests(): Promise<OrdinaryRequest[]> {
   const response = await request('requests')
+  return response.json()
+}
+
+export async function getOwnAllocations(): Promise<Allocation[]> {
+  const response = await request('allocations')
+  return response.json()
+}
+
+export async function getOwnMessages(): Promise<InboxMessage[]> {
+  const response = await request('messages')
   return response.json()
 }
 
