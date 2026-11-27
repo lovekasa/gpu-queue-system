@@ -143,6 +143,44 @@ class AdminAllocationController {
                 .orElseGet(() -> ResponseEntity.notFound().build());
     }
 
+    @GetMapping("/api/admin/renewals/pending")
+    ResponseEntity<List<AllocationRepository.RenewalRequestView>> listPendingRenewals() {
+        return ResponseEntity.ok(allocations.listPendingRenewals());
+    }
+
+    @PostMapping(path = "/api/admin/renewals/{id}/review",
+            consumes = MediaType.APPLICATION_FORM_URLENCODED_VALUE)
+    ResponseEntity<AllocationService.RenewalReviewResult> reviewRenewal(
+            @AuthenticationPrincipal AccountPrincipal principal,
+            @PathVariable String id,
+            @RequestBody MultiValueMap<String, String> form) {
+        UUID renewalId;
+        try {
+            renewalId = UUID.fromString(id);
+        } catch (IllegalArgumentException exception) {
+            return ResponseEntity.notFound().build();
+        }
+        String decision = form.getFirst("decision");
+        String reason = form.getFirst("reason");
+        java.time.Instant approvedExpiresAt = parseOptionalInstant(form.getFirst("approvedExpiresAt"), "approvedExpiresAt");
+        java.time.Instant seenExpiresAt = parseOptionalInstant(form.getFirst("seenExpiresAt"), "seenExpiresAt");
+        return allocations.reviewRenewalRequest(
+                        UUID.fromString(principal.id()), renewalId, decision, approvedExpiresAt, seenExpiresAt, reason)
+                .map(ResponseEntity::ok)
+                .orElseGet(() -> ResponseEntity.notFound().build());
+    }
+
+    private java.time.Instant parseOptionalInstant(String raw, String field) {
+        if (raw == null || raw.isBlank()) {
+            return null;
+        }
+        try {
+            return java.time.Instant.parse(raw.strip());
+        } catch (java.time.format.DateTimeParseException exception) {
+            throw new AllocationService.InvalidRequest(field, "时间格式无效，请使用 ISO-8601 时间。");
+        }
+    }
+
     @ExceptionHandler(AllocationService.InvalidRequest.class)
     ResponseEntity<FieldError> invalidInput(AllocationService.InvalidRequest exception) {
         return ResponseEntity.badRequest().body(new FieldError(exception.field(), exception.getMessage()));

@@ -119,6 +119,46 @@ class AllocationController {
                 .orElseGet(() -> ResponseEntity.notFound().build());
     }
 
+    @PostMapping(path = "/api/allocations/{id}/renewals",
+            consumes = org.springframework.http.MediaType.APPLICATION_FORM_URLENCODED_VALUE)
+    ResponseEntity<AllocationRepository.RenewalRequestView> submitRenewal(
+            @AuthenticationPrincipal AccountPrincipal principal,
+            @PathVariable String id,
+            @org.springframework.web.bind.annotation.RequestBody org.springframework.util.MultiValueMap<String, String> form) {
+        UUID allocationId;
+        try {
+            allocationId = UUID.fromString(id);
+        } catch (IllegalArgumentException exception) {
+            return ResponseEntity.notFound().build();
+        }
+        String raw = form.getFirst("requestedExpiresAt");
+        java.time.Instant requestedExpiresAt;
+        try {
+            if (raw == null || raw.isBlank()) {
+                throw new AllocationService.InvalidRequest("requestedExpiresAt", "请填写期望到期时间。");
+            }
+            requestedExpiresAt = java.time.Instant.parse(raw.strip());
+        } catch (java.time.format.DateTimeParseException exception) {
+            throw new AllocationService.InvalidRequest("requestedExpiresAt", "期望到期时间格式无效，请使用 ISO-8601 时间。");
+        }
+        return allocations.submitRenewalRequest(UUID.fromString(principal.id()), allocationId, requestedExpiresAt)
+                .map(created -> ResponseEntity.status(HttpStatus.CREATED).body(created))
+                .orElseGet(() -> ResponseEntity.notFound().build());
+    }
+
+    @GetMapping("/api/renewals")
+    ResponseEntity<List<AllocationRepository.RenewalRequestView>> listOwnRenewals(
+            @AuthenticationPrincipal AccountPrincipal principal) {
+        return ResponseEntity.ok(allocations.listOwnRenewals(UUID.fromString(principal.id())));
+    }
+
+    @ExceptionHandler(AllocationService.InvalidRequest.class)
+    ResponseEntity<FieldError> invalidInput(AllocationService.InvalidRequest exception) {
+        return ResponseEntity.badRequest().body(new FieldError(exception.field(), exception.getMessage()));
+    }
+
+    record FieldError(String field, String message) {}
+
     @ExceptionHandler(AllocationService.AllocationEnded.class)
     ResponseEntity<ConflictError> allocationEnded(AllocationService.AllocationEnded exception) {
         return ResponseEntity.status(HttpStatus.CONFLICT)

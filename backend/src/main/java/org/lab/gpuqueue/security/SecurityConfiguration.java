@@ -36,19 +36,23 @@ public class SecurityConfiguration {
                                 "/api/admin/members",
                                 "/api/admin/allocations/*/verified-release",
                                 "/api/admin/requests/*/emergency-review",
-                                "/api/admin/queues/*/reorder").hasRole("ADMIN")
+                                "/api/admin/queues/*/reorder",
+                                "/api/admin/renewals/*/review").hasRole("ADMIN")
                         .requestMatchers(HttpMethod.GET,
                                 "/api/admin/allocations/pending-verification",
                                 "/api/admin/requests/emergency-pending",
-                                "/api/admin/queues").hasRole("ADMIN")
+                                "/api/admin/queues",
+                                "/api/admin/renewals/pending").hasRole("ADMIN")
                         .requestMatchers(HttpMethod.POST,
                                 "/api/requests",
                                 "/api/allocations/*/start",
                                 "/api/allocations/*/return",
+                                "/api/allocations/*/renewals",
                                 "/api/messages/*/read").hasRole("MEMBER")
                         .requestMatchers(HttpMethod.GET,
                                 "/api/requests", "/api/requests/*",
                                 "/api/allocations", "/api/allocations/*",
+                                "/api/renewals",
                                 "/api/messages", "/api/messages/*").hasRole("MEMBER")
                         .requestMatchers("/api/**").denyAll()
                         .anyRequest().permitAll())

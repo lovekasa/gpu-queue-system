@@ -558,6 +558,168 @@ public class AllocationRepository {
                 .list();
     }
 
+    void updateAllocationExpiresAt(UUID allocationId, Instant newExpiresAt) {
+        int updated = jdbc.sql("UPDATE allocations SET expires_at = :expiresAt WHERE id = :id AND ended_at IS NULL")
+                .param("expiresAt", newExpiresAt.atOffset(ZoneOffset.UTC))
+                .param("id", allocationId)
+                .update();
+        if (updated != 1) {
+            throw new DataIntegrityViolationException("Failed to update expires_at for allocation " + allocationId);
+        }
+    }
+
+    UUID insertRenewalRequest(UUID allocationId, int gpuId, UUID memberId, Instant requestedExpiresAt, Instant createdAt) {
+        UUID id = UUID.randomUUID();
+        jdbc.sql("""
+                INSERT INTO renewal_requests (
+                    id, allocation_id, gpu_id, member_id, requested_expires_at, status, created_at
+                ) VALUES (
+                    :id, :allocationId, :gpuId, :memberId, :requestedExpiresAt, 'PENDING', :createdAt
+                )
+                """)
+                .param("id", id)
+                .param("allocationId", allocationId)
+                .param("gpuId", gpuId)
+                .param("memberId", memberId)
+                .param("requestedExpiresAt", requestedExpiresAt.atOffset(ZoneOffset.UTC))
+                .param("createdAt", createdAt.atOffset(ZoneOffset.UTC))
+                .update();
+        return id;
+    }
+
+    List<RenewalRequestView> listRenewalsForMember(UUID memberId) {
+        return jdbc.sql("""
+                SELECT rr.id, rr.allocation_id, rr.gpu_id, rr.member_id, acc.display_name AS member_name,
+                       a.expires_at AS current_expires_at, rr.requested_expires_at, rr.status,
+                       rr.approved_expires_at, rr.reviewed_at, rr.review_reason, rr.created_at
+                FROM renewal_requests rr
+                JOIN accounts acc ON acc.id = rr.member_id
+                JOIN allocations a ON a.id = rr.allocation_id
+                WHERE rr.member_id = :memberId
+                ORDER BY rr.created_at DESC
+                """)
+                .param("memberId", memberId)
+                .query(this::readRenewal)
+                .list();
+    }
+
+    List<RenewalRequestView> listPendingRenewals() {
+        return jdbc.sql("""
+                SELECT rr.id, rr.allocation_id, rr.gpu_id, rr.member_id, acc.display_name AS member_name,
+                       a.expires_at AS current_expires_at, rr.requested_expires_at, rr.status,
+                       rr.approved_expires_at, rr.reviewed_at, rr.review_reason, rr.created_at
+                FROM renewal_requests rr
+                JOIN accounts acc ON acc.id = rr.member_id
+                JOIN allocations a ON a.id = rr.allocation_id
+                WHERE rr.status = 'PENDING'
+                ORDER BY rr.created_at ASC
+                """)
+                .query(this::readRenewal)
+                .list();
+    }
+
+    Optional<RenewalRequestView> findRenewalById(UUID renewalId) {
+        return jdbc.sql("""
+                SELECT rr.id, rr.allocation_id, rr.gpu_id, rr.member_id, acc.display_name AS member_name,
+                       a.expires_at AS current_expires_at, rr.requested_expires_at, rr.status,
+                       rr.approved_expires_at, rr.reviewed_at, rr.review_reason, rr.created_at
+                FROM renewal_requests rr
+                JOIN accounts acc ON acc.id = rr.member_id
+                JOIN allocations a ON a.id = rr.allocation_id
+                WHERE rr.id = :id
+                """)
+                .param("id", renewalId)
+                .query(this::readRenewal)
+                .optional();
+    }
+
+    int updateRenewalReview(UUID renewalId, String newStatus, Instant approvedExpiresAt,
+                            UUID adminId, Instant reviewedAt, String reason) {
+        return jdbc.sql("""
+                UPDATE renewal_requests
+                SET status = :newStatus,
+                    approved_expires_at = :approvedExpiresAt,
+                    reviewed_by = :adminId,
+                    reviewed_at = :reviewedAt,
+                    review_reason = :reason
+                WHERE id = :id AND status = 'PENDING'
+                """)
+                .param("newStatus", newStatus)
+                .param("approvedExpiresAt", approvedExpiresAt != null ? approvedExpiresAt.atOffset(ZoneOffset.UTC) : null)
+                .param("adminId", adminId)
+                .param("reviewedAt", reviewedAt.atOffset(ZoneOffset.UTC))
+                .param("reason", reason)
+                .param("id", renewalId)
+                .update();
+    }
+
+    long insertAdminAllocationAudit(UUID adminId, Instant occurredAt, String action,
+                                    UUID requestId, UUID queueItemId, UUID allocationId, int gpuId,
+                                    String reason, String beforeState, String afterState) {
+        var keyHolder = new GeneratedKeyHolder();
+        jdbc.sql("""
+                INSERT INTO audit_logs (
+                    occurred_at, actor_type, actor_account_id, action,
+                    request_id, queue_item_id, allocation_id, gpu_id,
+                    reason, before_state, after_state
+                ) VALUES (
+                    :occurredAt, 'ADMIN', :actorAccountId, :action,
+                    :requestId, :queueItemId, :allocationId, :gpuId,
+                    :reason, :beforeState, :afterState
+                )
+                """)
+                .param("occurredAt", occurredAt.atOffset(ZoneOffset.UTC))
+                .param("actorAccountId", adminId)
+                .param("action", action)
+                .param("requestId", requestId)
+                .param("queueItemId", queueItemId)
+                .param("allocationId", allocationId)
+                .param("gpuId", gpuId)
+                .param("reason", reason)
+                .param("beforeState", beforeState)
+                .param("afterState", afterState)
+                .update(keyHolder, "transition_seq");
+        Number seq = keyHolder.getKey();
+        if (seq == null) {
+            throw new DataIntegrityViolationException("Failed to obtain audit transition_seq.");
+        }
+        return seq.longValue();
+    }
+
+    private RenewalRequestView readRenewal(ResultSet row, int index) throws SQLException {
+        OffsetDateTime rawApproved = row.getObject("approved_expires_at", OffsetDateTime.class);
+        OffsetDateTime rawReviewed = row.getObject("reviewed_at", OffsetDateTime.class);
+        return new RenewalRequestView(
+                row.getString("id"),
+                row.getString("allocation_id"),
+                row.getString("gpu_id"),
+                row.getString("member_id"),
+                row.getString("member_name"),
+                row.getObject("current_expires_at", OffsetDateTime.class).toInstant(),
+                row.getObject("requested_expires_at", OffsetDateTime.class).toInstant(),
+                row.getString("status"),
+                rawApproved != null ? rawApproved.toInstant() : null,
+                rawReviewed != null ? rawReviewed.toInstant() : null,
+                row.getString("review_reason"),
+                row.getObject("created_at", OffsetDateTime.class).toInstant());
+    }
+
+    @JsonInclude(JsonInclude.Include.NON_NULL)
+    public record RenewalRequestView(
+            String id,
+            String allocationId,
+            String gpuId,
+            String memberId,
+            String memberName,
+            Instant currentExpiresAt,
+            Instant requestedExpiresAt,
+            String status,
+            Instant approvedExpiresAt,
+            Instant reviewedAt,
+            String reviewReason,
+            Instant createdAt
+    ) {}
+
     List<QueueOrderingPolicy.ReorderRule> findReorderRules(int gpuId) {
         return jdbc.sql("""
                 SELECT id, target_queue_item_id, before_queue_item_id, after_queue_item_id

@@ -90,7 +90,7 @@ export interface ReturnAllocationResult {
 export interface InboxMessage {
   id: string
   transitionSeq: string
-  type: 'ALLOCATED' | 'UNSTARTED_EXPIRED' | 'ANOMALY' | 'OVERDUE' | 'VERIFIED_RELEASED' | 'EMERGENCY_APPROVED' | 'EMERGENCY_REJECTED' | 'QUEUE_REORDERED'
+  type: 'ALLOCATED' | 'UNSTARTED_EXPIRED' | 'ANOMALY' | 'OVERDUE' | 'VERIFIED_RELEASED' | 'EMERGENCY_APPROVED' | 'EMERGENCY_REJECTED' | 'QUEUE_REORDERED' | 'RENEWAL_APPROVED' | 'RENEWAL_REJECTED'
   requestId: string
   allocationId?: string
   gpuId?: string
@@ -311,6 +311,58 @@ export async function reorderAdminQueue(
   })
   seenQueueItemIds.forEach(id => body.append('seenQueueItemIds', id))
   const response = await post(`admin/queues/${encodeURIComponent(gpuId)}/reorder`, body)
+  return response.json()
+}
+
+export interface RenewalRequest {
+  id: string
+  allocationId: string
+  gpuId: string
+  memberId: string
+  memberName: string
+  currentExpiresAt: string
+  requestedExpiresAt: string
+  status: 'PENDING' | 'APPROVED' | 'REJECTED'
+  approvedExpiresAt?: string
+  reviewedAt?: string
+  reviewReason?: string
+  createdAt: string
+}
+
+export interface RenewalReviewResult {
+  renewal: RenewalRequest
+  alreadyReviewed: boolean
+}
+
+export async function submitRenewalRequest(allocationId: string, requestedExpiresAt: string): Promise<RenewalRequest> {
+  const response = await post(
+    `allocations/${encodeURIComponent(allocationId)}/renewals`,
+    new URLSearchParams({ requestedExpiresAt }),
+  )
+  return response.json()
+}
+
+export async function getOwnRenewals(): Promise<RenewalRequest[]> {
+  const response = await request('renewals')
+  return response.json()
+}
+
+export async function getPendingRenewals(): Promise<RenewalRequest[]> {
+  const response = await request('admin/renewals/pending')
+  return response.json()
+}
+
+export async function reviewRenewalRequest(
+  renewalId: string,
+  decision: 'APPROVE' | 'REJECT',
+  reason: string,
+  approvedExpiresAt?: string,
+  seenExpiresAt?: string,
+): Promise<RenewalReviewResult> {
+  const body = new URLSearchParams({ decision, reason })
+  if (approvedExpiresAt) body.set('approvedExpiresAt', approvedExpiresAt)
+  if (seenExpiresAt) body.set('seenExpiresAt', seenExpiresAt)
+  const response = await post(`admin/renewals/${encodeURIComponent(renewalId)}/review`, body)
   return response.json()
 }
 

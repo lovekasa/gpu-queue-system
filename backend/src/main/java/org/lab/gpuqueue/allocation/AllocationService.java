@@ -681,6 +681,142 @@ public class AllocationService {
 
     public record AdminGpuQueueView(String gpuId, List<AdminQueueItemView> waiting) {}
 
+    @Transactional(rollbackFor = Exception.class)
+    public Optional<AllocationRepository.RenewalRequestView> submitRenewalRequest(
+            UUID memberId, UUID allocationId, Instant requestedExpiresAt) {
+        if (requestedExpiresAt == null) {
+            throw new InvalidRequest("requestedExpiresAt", "请填写有效的期望到期时间。");
+        }
+        var ownedOpt = allocations.findOwnedAllocationState(memberId, allocationId);
+        if (ownedOpt.isEmpty()) {
+            return Optional.empty();
+        }
+        var owned = ownedOpt.get();
+        allocations.lockGpu(owned.gpuId());
+        var locked = allocations.findOwnedAllocationState(memberId, allocationId)
+                .orElseThrow(() -> new DataIntegrityViolationException("Missing allocation " + allocationId));
+        if (!locked.current() || locked.endedAt() != null) {
+            throw new AllocationEnded("该名额已结束或释放，无法申请续期。");
+        }
+        Instant now = clock.instant();
+        if (!requestedExpiresAt.isAfter(locked.expiresAt()) || !requestedExpiresAt.isAfter(now)) {
+            throw new InvalidRequest("requestedExpiresAt", "期望新到期时间必须晚于当前到期时间且晚于当前时间。");
+        }
+        UUID renewalId = allocations.insertRenewalRequest(allocationId, locked.gpuId(), memberId, requestedExpiresAt, now);
+        return allocations.findRenewalById(renewalId);
+    }
+
+    @Transactional(readOnly = true)
+    public List<AllocationRepository.RenewalRequestView> listOwnRenewals(UUID memberId) {
+        return allocations.listRenewalsForMember(memberId);
+    }
+
+    @Transactional(readOnly = true)
+    public List<AllocationRepository.RenewalRequestView> listPendingRenewals() {
+        return allocations.listPendingRenewals();
+    }
+
+    @Transactional(rollbackFor = Exception.class)
+    public Optional<RenewalReviewResult> reviewRenewalRequest(
+            UUID adminId, UUID renewalId, String rawDecision,
+            Instant approvedExpiresAt, Instant seenExpiresAt, String rawReason) {
+        String decision = rawDecision == null ? "" : rawDecision.strip().toUpperCase();
+        if (!"APPROVE".equals(decision) && !"REJECT".equals(decision)) {
+            throw new InvalidRequest("decision", "审核结论必须为 APPROVE 或 REJECT。");
+        }
+        String reason = rawReason == null ? "" : rawReason.strip();
+        if (reason.isEmpty()) {
+            throw new InvalidRequest("reason", "请填写非空审核理由。");
+        }
+        if (reason.length() > 500) {
+            throw new InvalidRequest("reason", "审核理由不能超过 500 个字符。");
+        }
+        var existingOpt = allocations.findRenewalById(renewalId);
+        if (existingOpt.isEmpty()) {
+            return Optional.empty();
+        }
+        var existing = existingOpt.get();
+        String targetStatus = "APPROVE".equals(decision) ? "APPROVED" : "REJECTED";
+        if (!"PENDING".equals(existing.status())) {
+            if (targetStatus.equals(existing.status())) {
+                return Optional.of(new RenewalReviewResult(existing, true));
+            }
+            throw new StatusConflict("该续期申请已有相反审核结论（" + existing.status() + "），不可反向改判。");
+        }
+
+        int gpuId = Integer.parseInt(existing.gpuId());
+        allocations.lockGpu(gpuId);
+
+        var lockedRenewal = allocations.findRenewalById(renewalId).orElseThrow();
+        if (!"PENDING".equals(lockedRenewal.status())) {
+            if (targetStatus.equals(lockedRenewal.status())) {
+                return Optional.of(new RenewalReviewResult(lockedRenewal, true));
+            }
+            throw new StatusConflict("该续期申请已有相反审核结论（" + lockedRenewal.status() + "），不可反向改判。");
+        }
+
+        UUID allocationId = UUID.fromString(lockedRenewal.allocationId());
+        var alloc = allocations.findAllocationLifecycleState(allocationId)
+                .orElseThrow(() -> new DataIntegrityViolationException("Missing allocation " + allocationId));
+
+        if (seenExpiresAt != null && !seenExpiresAt.equals(alloc.expiresAt())) {
+            throw new StatusConflict("名额当前期限已变化，请刷新后重新审核。");
+        }
+
+        Instant now = clock.instant();
+        if ("APPROVED".equals(targetStatus)) {
+            if (!alloc.current() || alloc.endedAt() != null) {
+                throw new StatusConflict("该名额已结束或释放，无法批准续期。");
+            }
+            if (approvedExpiresAt == null
+                    || !approvedExpiresAt.isAfter(alloc.expiresAt())
+                    || !approvedExpiresAt.isAfter(now)) {
+                throw new InvalidRequest("approvedExpiresAt", "批准的新到期时间必须严格晚于当前到期时间且晚于当前时间。");
+            }
+            Instant oldExpiresAt = alloc.expiresAt();
+            allocations.updateAllocationExpiresAt(allocationId, approvedExpiresAt);
+            int updated = allocations.updateRenewalReview(renewalId, "APPROVED", approvedExpiresAt, adminId, now, reason);
+            if (updated != 1) {
+                throw new DataIntegrityViolationException("Failed to approve renewal " + renewalId);
+            }
+            String beforeState = "renewal=PENDING;expiresAt=" + oldExpiresAt;
+            String afterState = "renewal=APPROVED;expiresAt=" + approvedExpiresAt;
+            long seq = allocations.insertAdminAllocationAudit(
+                    adminId, now, "RENEWAL_APPROVED",
+                    alloc.requestId(), alloc.queueItemId(), allocationId, gpuId,
+                    reason, beforeState, afterState);
+            allocations.insertInboxMessage(
+                    UUID.randomUUID(), alloc.memberId(), seq, allocationId, alloc.requestId(), gpuId,
+                    "RENEWAL_APPROVED",
+                    "GPU " + gpuId + " 续期申请已批准",
+                    "您的名额 " + allocationId + "（GPU " + gpuId + "）续期已获批准，新到期时间为 " + approvedExpiresAt + "。理由：" + reason,
+                    now);
+        } else {
+            int updated = allocations.updateRenewalReview(renewalId, "REJECTED", null, adminId, now, reason);
+            if (updated != 1) {
+                throw new DataIntegrityViolationException("Failed to reject renewal " + renewalId);
+            }
+            String beforeState = "renewal=PENDING;expiresAt=" + alloc.expiresAt();
+            String afterState = "renewal=REJECTED;expiresAt=" + alloc.expiresAt();
+            long seq = allocations.insertAdminAllocationAudit(
+                    adminId, now, "RENEWAL_REJECTED",
+                    alloc.requestId(), alloc.queueItemId(), allocationId, gpuId,
+                    reason, beforeState, afterState);
+            allocations.insertInboxMessage(
+                    UUID.randomUUID(), alloc.memberId(), seq, allocationId, alloc.requestId(), gpuId,
+                    "RENEWAL_REJECTED",
+                    "GPU " + gpuId + " 续期申请未获批准",
+                    "您的名额 " + allocationId + "（GPU " + gpuId + "）续期申请未获批准，原到期时间保持不变。理由：" + reason,
+                    now);
+        }
+
+        var refreshed = allocations.findRenewalById(renewalId)
+                .orElseThrow(() -> new DataIntegrityViolationException("Missing reviewed renewal " + renewalId));
+        return Optional.of(new RenewalReviewResult(refreshed, false));
+    }
+
+    public record RenewalReviewResult(AllocationRepository.RenewalRequestView renewal, boolean alreadyReviewed) {}
+
     public record ReorderResult(String gpuId, boolean changed, List<AdminQueueItemView> waiting) {}
 
     public record EmergencyReviewResult(RequestRepository.AdminEmergencyRequestView request, boolean alreadyReviewed) {}
