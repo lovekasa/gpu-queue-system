@@ -37,6 +37,29 @@ export interface OrdinaryRequest {
   receiveSeq: string
   durationHours: number
   queueItems: QueueItem[]
+  requestType?: 'ORDINARY' | 'EMERGENCY'
+  emergencyStatus?: 'PENDING' | 'APPROVED' | 'REJECTED'
+  emergencyReviewedAt?: string
+  emergencyReviewReason?: string
+}
+
+export interface AdminEmergencyRequest {
+  id: string
+  memberId: string
+  memberName: string
+  submittedAt: string
+  receiveSeq: string
+  durationHours: number
+  requestType: 'EMERGENCY'
+  emergencyStatus: 'PENDING' | 'APPROVED' | 'REJECTED'
+  emergencyReviewedAt?: string
+  emergencyReviewReason?: string
+  queueItems: QueueItem[]
+}
+
+export interface EmergencyReviewResult {
+  request: AdminEmergencyRequest
+  alreadyReviewed: boolean
 }
 
 export interface Allocation {
@@ -67,14 +90,14 @@ export interface ReturnAllocationResult {
 export interface InboxMessage {
   id: string
   transitionSeq: string
-  type: 'ALLOCATED' | 'UNSTARTED_EXPIRED' | 'ANOMALY' | 'OVERDUE' | 'VERIFIED_RELEASED'
+  type: 'ALLOCATED' | 'UNSTARTED_EXPIRED' | 'ANOMALY' | 'OVERDUE' | 'VERIFIED_RELEASED' | 'EMERGENCY_APPROVED' | 'EMERGENCY_REJECTED' | 'QUEUE_REORDERED' | 'RENEWAL_APPROVED' | 'RENEWAL_REJECTED' | 'ADMIN_EXTENDED' | 'ADMIN_PROXY_RETURNED' | 'ADMIN_REVOKED'
   requestId: string
-  allocationId: string
-  gpuId: string
+  allocationId?: string
+  gpuId?: string
   title: string
   body: string
-  allocatedAt: string
-  expiresAt: string
+  allocatedAt?: string
+  expiresAt?: string
   createdAt: string
   readAt?: string
 }
@@ -167,9 +190,16 @@ export async function confirmReturnAllocation(allocationId: string): Promise<Ret
   return response.json()
 }
 
-export async function submitOrdinaryRequest(gpuIds: string[], durationHours: string): Promise<OrdinaryRequest> {
+export async function submitOrdinaryRequest(
+  gpuIds: string[],
+  durationHours: string,
+  emergency = false,
+): Promise<OrdinaryRequest> {
   const body = new URLSearchParams({ durationHours })
   gpuIds.forEach(id => body.append('gpuIds', id))
+  if (emergency) {
+    body.append('emergency', 'true')
+  }
   const response = await post('requests', body)
   return response.json()
 }
@@ -221,6 +251,192 @@ export async function submitAdminVerifiedRelease(
     reason,
   })
   const response = await post(`admin/allocations/${encodeURIComponent(allocationId)}/verified-release`, body)
+  return response.json()
+}
+
+export async function getPendingEmergencyRequests(): Promise<AdminEmergencyRequest[]> {
+  const response = await request('admin/requests/emergency-pending')
+  return response.json()
+}
+
+export async function reviewEmergencyRequest(
+  requestId: string,
+  decision: 'APPROVE' | 'REJECT',
+  reason: string,
+): Promise<EmergencyReviewResult> {
+  const body = new URLSearchParams({ decision, reason })
+  const response = await post(`admin/requests/${encodeURIComponent(requestId)}/emergency-review`, body)
+  return response.json()
+}
+
+export interface AdminQueueItem {
+  position: number
+  queueItemId: string
+  requestId: string
+  memberName: string
+  durationHours: number
+  submittedAt: string
+  receiveSeq: string
+  approvedEmergency: boolean
+  boostedOver72Hours: boolean
+}
+
+export interface AdminGpuQueue {
+  gpuId: string
+  waiting: AdminQueueItem[]
+}
+
+export interface ReorderResult {
+  gpuId: string
+  changed: boolean
+  waiting: AdminQueueItem[]
+}
+
+export async function getAdminQueues(): Promise<AdminGpuQueue[]> {
+  const response = await request('admin/queues')
+  return response.json()
+}
+
+export async function reorderAdminQueue(
+  gpuId: string,
+  targetQueueItemId: string,
+  targetPosition: number,
+  seenQueueItemIds: string[],
+  reason: string,
+): Promise<ReorderResult> {
+  const body = new URLSearchParams({
+    targetQueueItemId,
+    targetPosition: String(targetPosition),
+    reason,
+  })
+  seenQueueItemIds.forEach(id => body.append('seenQueueItemIds', id))
+  const response = await post(`admin/queues/${encodeURIComponent(gpuId)}/reorder`, body)
+  return response.json()
+}
+
+export interface RenewalRequest {
+  id: string
+  allocationId: string
+  gpuId: string
+  memberId: string
+  memberName: string
+  currentExpiresAt: string
+  requestedExpiresAt: string
+  status: 'PENDING' | 'APPROVED' | 'REJECTED'
+  approvedExpiresAt?: string
+  reviewedAt?: string
+  reviewReason?: string
+  createdAt: string
+}
+
+export interface RenewalReviewResult {
+  renewal: RenewalRequest
+  alreadyReviewed: boolean
+}
+
+export async function submitRenewalRequest(allocationId: string, requestedExpiresAt: string): Promise<RenewalRequest> {
+  const response = await post(
+    `allocations/${encodeURIComponent(allocationId)}/renewals`,
+    new URLSearchParams({ requestedExpiresAt }),
+  )
+  return response.json()
+}
+
+export async function getOwnRenewals(): Promise<RenewalRequest[]> {
+  const response = await request('renewals')
+  return response.json()
+}
+
+export async function getPendingRenewals(): Promise<RenewalRequest[]> {
+  const response = await request('admin/renewals/pending')
+  return response.json()
+}
+
+export async function reviewRenewalRequest(
+  renewalId: string,
+  decision: 'APPROVE' | 'REJECT',
+  reason: string,
+  approvedExpiresAt?: string,
+  seenExpiresAt?: string,
+): Promise<RenewalReviewResult> {
+  const body = new URLSearchParams({ decision, reason })
+  if (approvedExpiresAt) body.set('approvedExpiresAt', approvedExpiresAt)
+  if (seenExpiresAt) body.set('seenExpiresAt', seenExpiresAt)
+  const response = await post(`admin/renewals/${encodeURIComponent(renewalId)}/review`, body)
+  return response.json()
+}
+
+export interface DirectExtendResult {
+  allocationId: string
+  gpuId: string
+  expiresAt: string
+  alreadyExtended: boolean
+}
+
+export async function getAdminActiveAllocations(): Promise<PendingVerificationAllocation[]> {
+  const response = await request('admin/allocations/active')
+  return response.json()
+}
+
+export async function submitAdminDirectExtend(
+  allocationId: string,
+  seenStatus: string,
+  seenExpiresAt: string,
+  newExpiresAt: string,
+  reason: string,
+): Promise<DirectExtendResult> {
+  const body = new URLSearchParams({ seenStatus, seenExpiresAt, newExpiresAt, reason })
+  const response = await post(`admin/allocations/${encodeURIComponent(allocationId)}/extend`, body)
+  return response.json()
+}
+
+export async function submitAdminProxyReturn(
+  allocationId: string,
+  seenStatus: string,
+  verified: boolean,
+  reason: string,
+): Promise<VerifiedReleaseResult> {
+  const body = new URLSearchParams({
+    seenStatus,
+    verified: verified ? 'true' : 'false',
+    reason,
+  })
+  const response = await post(`admin/allocations/${encodeURIComponent(allocationId)}/proxy-return`, body)
+  return response.json()
+}
+
+export async function submitAdminRevoke(
+  allocationId: string,
+  seenStatus: string,
+  reason: string,
+): Promise<VerifiedReleaseResult> {
+  const body = new URLSearchParams({ seenStatus, reason })
+  const response = await post(`admin/allocations/${encodeURIComponent(allocationId)}/revoke`, body)
+  return response.json()
+}
+
+export interface AuditLogEntry {
+  transitionSeq: string
+  occurredAt: string
+  actorType: 'SYSTEM' | 'MEMBER' | 'ADMIN'
+  actorAccountId?: string
+  actorDisplayName?: string
+  action: string
+  requestId: string
+  queueItemId?: string
+  allocationId?: string
+  gpuId?: string
+  reason?: string
+  beforeState: string
+  afterState: string
+}
+
+export async function getAdminAuditLogs(requestId?: string, allocationId?: string): Promise<AuditLogEntry[]> {
+  const params = new URLSearchParams()
+  if (requestId?.trim()) params.set('requestId', requestId.trim())
+  if (allocationId?.trim()) params.set('allocationId', allocationId.trim())
+  const query = params.toString()
+  const response = await request(query ? `admin/audit-logs?${query}` : 'admin/audit-logs')
   return response.json()
 }
 

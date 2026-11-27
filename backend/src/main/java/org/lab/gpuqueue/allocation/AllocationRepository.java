@@ -59,7 +59,8 @@ public class AllocationRepository {
                        qi.gpu_id,
                        r.duration_hours,
                        r.submitted_at,
-                       r.receive_seq
+                       r.receive_seq,
+                       (r.request_type = 'EMERGENCY' AND r.emergency_status = 'APPROVED') AS approved_emergency
                 FROM queue_items qi
                 JOIN requests r ON r.id = qi.request_id
                 WHERE qi.gpu_id = :gpuId AND qi.status = 'WAITING'
@@ -72,7 +73,8 @@ public class AllocationRepository {
                         row.getInt("gpu_id"),
                         row.getInt("duration_hours"),
                         row.getObject("submitted_at", OffsetDateTime.class).toInstant(),
-                        row.getLong("receive_seq")))
+                        row.getLong("receive_seq"),
+                        row.getBoolean("approved_emergency")))
                 .list();
     }
 
@@ -534,7 +536,8 @@ public class AllocationRepository {
                        qi.gpu_id,
                        r.duration_hours,
                        r.submitted_at,
-                       r.receive_seq
+                       r.receive_seq,
+                       (r.request_type = 'EMERGENCY' AND r.emergency_status = 'APPROVED') AS approved_emergency
                 FROM queue_items qi
                 JOIN requests r ON r.id = qi.request_id
                 JOIN accounts acc ON acc.id = r.member_id
@@ -549,9 +552,427 @@ public class AllocationRepository {
                                 row.getInt("gpu_id"),
                                 row.getInt("duration_hours"),
                                 row.getObject("submitted_at", OffsetDateTime.class).toInstant(),
-                                row.getLong("receive_seq")),
+                                row.getLong("receive_seq"),
+                                row.getBoolean("approved_emergency")),
                         row.getString("member_name")))
                 .list();
+    }
+
+    List<AuditLogView> listAuditLogs(UUID requestId, UUID allocationId) {
+        StringBuilder sql = new StringBuilder("""
+                SELECT al.transition_seq,
+                       al.occurred_at,
+                       al.actor_type,
+                       al.actor_account_id,
+                       acc.display_name AS actor_display_name,
+                       al.action,
+                       al.request_id,
+                       al.queue_item_id,
+                       al.allocation_id,
+                       al.gpu_id,
+                       al.reason,
+                       al.before_state,
+                       al.after_state
+                FROM audit_logs al
+                LEFT JOIN accounts acc ON acc.id = al.actor_account_id
+                WHERE 1 = 1
+                """);
+        if (requestId != null) {
+            sql.append(" AND al.request_id = :requestId");
+        }
+        if (allocationId != null) {
+            sql.append(" AND al.allocation_id = :allocationId");
+        }
+        sql.append(" ORDER BY al.transition_seq ASC");
+        var stmt = jdbc.sql(sql.toString());
+        if (requestId != null) {
+            stmt = stmt.param("requestId", requestId);
+        }
+        if (allocationId != null) {
+            stmt = stmt.param("allocationId", allocationId);
+        }
+        return stmt.query((row, index) -> new AuditLogView(
+                row.getString("transition_seq"),
+                row.getObject("occurred_at", OffsetDateTime.class).toInstant(),
+                row.getString("actor_type"),
+                row.getString("actor_account_id"),
+                row.getString("actor_display_name"),
+                row.getString("action"),
+                row.getString("request_id"),
+                row.getString("queue_item_id"),
+                row.getString("allocation_id"),
+                row.getString("gpu_id"),
+                row.getString("reason"),
+                row.getString("before_state"),
+                row.getString("after_state"))).list();
+    }
+
+    @JsonInclude(JsonInclude.Include.NON_NULL)
+    public record AuditLogView(
+            String transitionSeq,
+            Instant occurredAt,
+            String actorType,
+            String actorAccountId,
+            String actorDisplayName,
+            String action,
+            String requestId,
+            String queueItemId,
+            String allocationId,
+            String gpuId,
+            String reason,
+            String beforeState,
+            String afterState
+    ) {}
+
+    List<PendingVerificationView> listActiveAllocationsForAdmin(Instant now) {
+        return jdbc.sql("""
+                SELECT a.id,
+                       r.id AS request_id,
+                       a.queue_item_id,
+                       a.gpu_id,
+                       acc.display_name AS member_display_name,
+                       r.duration_hours,
+                       a.allocated_at,
+                       a.expires_at,
+                       a.started_at,
+                       a.not_started_anomaly_at
+                FROM current_allocations ca
+                JOIN allocations a ON a.id = ca.allocation_id
+                JOIN queue_items qi ON qi.id = a.queue_item_id AND qi.gpu_id = a.gpu_id
+                JOIN requests r ON r.id = qi.request_id
+                JOIN accounts acc ON acc.id = r.member_id
+                WHERE a.ended_at IS NULL
+                ORDER BY a.gpu_id ASC
+                """)
+                .query((row, index) -> {
+                    OffsetDateTime rawStarted = row.getObject("started_at", OffsetDateTime.class);
+                    OffsetDateTime rawAnomaly = row.getObject("not_started_anomaly_at", OffsetDateTime.class);
+                    Instant startedAt = rawStarted != null ? rawStarted.toInstant() : null;
+                    Instant anomalyAt = rawAnomaly != null ? rawAnomaly.toInstant() : null;
+                    Instant expiresAt = row.getObject("expires_at", OffsetDateTime.class).toInstant();
+                    String status = deriveActiveStatus(startedAt, anomalyAt, expiresAt, now);
+                    return new PendingVerificationView(
+                            row.getString("id"),
+                            row.getString("request_id"),
+                            row.getString("queue_item_id"),
+                            row.getString("gpu_id"),
+                            row.getString("member_display_name"),
+                            row.getInt("duration_hours"),
+                            row.getObject("allocated_at", OffsetDateTime.class).toInstant(),
+                            expiresAt,
+                            startedAt,
+                            anomalyAt,
+                            status);
+                })
+                .list();
+    }
+
+    void updateAllocationExpiresAt(UUID allocationId, Instant newExpiresAt) {
+        int updated = jdbc.sql("UPDATE allocations SET expires_at = :expiresAt WHERE id = :id AND ended_at IS NULL")
+                .param("expiresAt", newExpiresAt.atOffset(ZoneOffset.UTC))
+                .param("id", allocationId)
+                .update();
+        if (updated != 1) {
+            throw new DataIntegrityViolationException("Failed to update expires_at for allocation " + allocationId);
+        }
+    }
+
+    UUID insertRenewalRequest(UUID allocationId, int gpuId, UUID memberId, Instant requestedExpiresAt, Instant createdAt) {
+        UUID id = UUID.randomUUID();
+        jdbc.sql("""
+                INSERT INTO renewal_requests (
+                    id, allocation_id, gpu_id, member_id, requested_expires_at, status, created_at
+                ) VALUES (
+                    :id, :allocationId, :gpuId, :memberId, :requestedExpiresAt, 'PENDING', :createdAt
+                )
+                """)
+                .param("id", id)
+                .param("allocationId", allocationId)
+                .param("gpuId", gpuId)
+                .param("memberId", memberId)
+                .param("requestedExpiresAt", requestedExpiresAt.atOffset(ZoneOffset.UTC))
+                .param("createdAt", createdAt.atOffset(ZoneOffset.UTC))
+                .update();
+        return id;
+    }
+
+    List<RenewalRequestView> listRenewalsForMember(UUID memberId) {
+        return jdbc.sql("""
+                SELECT rr.id, rr.allocation_id, rr.gpu_id, rr.member_id, acc.display_name AS member_name,
+                       a.expires_at AS current_expires_at, rr.requested_expires_at, rr.status,
+                       rr.approved_expires_at, rr.reviewed_at, rr.review_reason, rr.created_at
+                FROM renewal_requests rr
+                JOIN accounts acc ON acc.id = rr.member_id
+                JOIN allocations a ON a.id = rr.allocation_id
+                WHERE rr.member_id = :memberId
+                ORDER BY rr.created_at DESC
+                """)
+                .param("memberId", memberId)
+                .query(this::readRenewal)
+                .list();
+    }
+
+    List<RenewalRequestView> listPendingRenewals() {
+        return jdbc.sql("""
+                SELECT rr.id, rr.allocation_id, rr.gpu_id, rr.member_id, acc.display_name AS member_name,
+                       a.expires_at AS current_expires_at, rr.requested_expires_at, rr.status,
+                       rr.approved_expires_at, rr.reviewed_at, rr.review_reason, rr.created_at
+                FROM renewal_requests rr
+                JOIN accounts acc ON acc.id = rr.member_id
+                JOIN allocations a ON a.id = rr.allocation_id
+                WHERE rr.status = 'PENDING'
+                ORDER BY rr.created_at ASC
+                """)
+                .query(this::readRenewal)
+                .list();
+    }
+
+    Optional<RenewalRequestView> findRenewalById(UUID renewalId) {
+        return jdbc.sql("""
+                SELECT rr.id, rr.allocation_id, rr.gpu_id, rr.member_id, acc.display_name AS member_name,
+                       a.expires_at AS current_expires_at, rr.requested_expires_at, rr.status,
+                       rr.approved_expires_at, rr.reviewed_at, rr.review_reason, rr.created_at
+                FROM renewal_requests rr
+                JOIN accounts acc ON acc.id = rr.member_id
+                JOIN allocations a ON a.id = rr.allocation_id
+                WHERE rr.id = :id
+                """)
+                .param("id", renewalId)
+                .query(this::readRenewal)
+                .optional();
+    }
+
+    int updateRenewalReview(UUID renewalId, String newStatus, Instant approvedExpiresAt,
+                            UUID adminId, Instant reviewedAt, String reason) {
+        return jdbc.sql("""
+                UPDATE renewal_requests
+                SET status = :newStatus,
+                    approved_expires_at = :approvedExpiresAt,
+                    reviewed_by = :adminId,
+                    reviewed_at = :reviewedAt,
+                    review_reason = :reason
+                WHERE id = :id AND status = 'PENDING'
+                """)
+                .param("newStatus", newStatus)
+                .param("approvedExpiresAt", approvedExpiresAt != null ? approvedExpiresAt.atOffset(ZoneOffset.UTC) : null)
+                .param("adminId", adminId)
+                .param("reviewedAt", reviewedAt.atOffset(ZoneOffset.UTC))
+                .param("reason", reason)
+                .param("id", renewalId)
+                .update();
+    }
+
+    long insertAdminAllocationAudit(UUID adminId, Instant occurredAt, String action,
+                                    UUID requestId, UUID queueItemId, UUID allocationId, int gpuId,
+                                    String reason, String beforeState, String afterState) {
+        var keyHolder = new GeneratedKeyHolder();
+        jdbc.sql("""
+                INSERT INTO audit_logs (
+                    occurred_at, actor_type, actor_account_id, action,
+                    request_id, queue_item_id, allocation_id, gpu_id,
+                    reason, before_state, after_state
+                ) VALUES (
+                    :occurredAt, 'ADMIN', :actorAccountId, :action,
+                    :requestId, :queueItemId, :allocationId, :gpuId,
+                    :reason, :beforeState, :afterState
+                )
+                """)
+                .param("occurredAt", occurredAt.atOffset(ZoneOffset.UTC))
+                .param("actorAccountId", adminId)
+                .param("action", action)
+                .param("requestId", requestId)
+                .param("queueItemId", queueItemId)
+                .param("allocationId", allocationId)
+                .param("gpuId", gpuId)
+                .param("reason", reason)
+                .param("beforeState", beforeState)
+                .param("afterState", afterState)
+                .update(keyHolder, "transition_seq");
+        Number seq = keyHolder.getKey();
+        if (seq == null) {
+            throw new DataIntegrityViolationException("Failed to obtain audit transition_seq.");
+        }
+        return seq.longValue();
+    }
+
+    private RenewalRequestView readRenewal(ResultSet row, int index) throws SQLException {
+        OffsetDateTime rawApproved = row.getObject("approved_expires_at", OffsetDateTime.class);
+        OffsetDateTime rawReviewed = row.getObject("reviewed_at", OffsetDateTime.class);
+        return new RenewalRequestView(
+                row.getString("id"),
+                row.getString("allocation_id"),
+                row.getString("gpu_id"),
+                row.getString("member_id"),
+                row.getString("member_name"),
+                row.getObject("current_expires_at", OffsetDateTime.class).toInstant(),
+                row.getObject("requested_expires_at", OffsetDateTime.class).toInstant(),
+                row.getString("status"),
+                rawApproved != null ? rawApproved.toInstant() : null,
+                rawReviewed != null ? rawReviewed.toInstant() : null,
+                row.getString("review_reason"),
+                row.getObject("created_at", OffsetDateTime.class).toInstant());
+    }
+
+    @JsonInclude(JsonInclude.Include.NON_NULL)
+    public record RenewalRequestView(
+            String id,
+            String allocationId,
+            String gpuId,
+            String memberId,
+            String memberName,
+            Instant currentExpiresAt,
+            Instant requestedExpiresAt,
+            String status,
+            Instant approvedExpiresAt,
+            Instant reviewedAt,
+            String reviewReason,
+            Instant createdAt
+    ) {}
+
+    List<QueueOrderingPolicy.ReorderRule> findReorderRules(int gpuId) {
+        return jdbc.sql("""
+                SELECT id, target_queue_item_id, before_queue_item_id, after_queue_item_id
+                FROM queue_reorders
+                WHERE gpu_id = :gpuId
+                ORDER BY id ASC
+                """)
+                .param("gpuId", gpuId)
+                .query((row, index) -> new QueueOrderingPolicy.ReorderRule(
+                        row.getLong("id"),
+                        row.getObject("target_queue_item_id", UUID.class),
+                        row.getObject("before_queue_item_id", UUID.class),
+                        row.getObject("after_queue_item_id", UUID.class)))
+                .list();
+    }
+
+    long insertReorderRule(int gpuId, UUID targetQueueItemId, UUID beforeQueueItemId, UUID afterQueueItemId,
+                           UUID adminId, String reason, Instant createdAt) {
+        var keyHolder = new GeneratedKeyHolder();
+        jdbc.sql("""
+                INSERT INTO queue_reorders (
+                    gpu_id, target_queue_item_id, before_queue_item_id, after_queue_item_id,
+                    actor_account_id, reason, created_at
+                ) VALUES (
+                    :gpuId, :targetQueueItemId, :beforeQueueItemId, :afterQueueItemId,
+                    :actorAccountId, :reason, :createdAt
+                )
+                """)
+                .param("gpuId", gpuId)
+                .param("targetQueueItemId", targetQueueItemId)
+                .param("beforeQueueItemId", beforeQueueItemId)
+                .param("afterQueueItemId", afterQueueItemId)
+                .param("actorAccountId", adminId)
+                .param("reason", reason)
+                .param("createdAt", createdAt.atOffset(ZoneOffset.UTC))
+                .update(keyHolder, "id");
+        Number id = keyHolder.getKey();
+        if (id == null) {
+            throw new DataIntegrityViolationException("Failed to obtain queue_reorders id.");
+        }
+        return id.longValue();
+    }
+
+    long insertQueueReorderAudit(UUID adminId, Instant occurredAt, UUID requestId, UUID targetQueueItemId, int gpuId,
+                                 String reason, String beforeState, String afterState) {
+        var keyHolder = new GeneratedKeyHolder();
+        jdbc.sql("""
+                INSERT INTO audit_logs (
+                    occurred_at, actor_type, actor_account_id, action,
+                    request_id, queue_item_id, allocation_id, gpu_id,
+                    reason, before_state, after_state
+                ) VALUES (
+                    :occurredAt, 'ADMIN', :actorAccountId, 'QUEUE_REORDERED',
+                    :requestId, :queueItemId, NULL, :gpuId,
+                    :reason, :beforeState, :afterState
+                )
+                """)
+                .param("occurredAt", occurredAt.atOffset(ZoneOffset.UTC))
+                .param("actorAccountId", adminId)
+                .param("requestId", requestId)
+                .param("queueItemId", targetQueueItemId)
+                .param("gpuId", gpuId)
+                .param("reason", reason)
+                .param("beforeState", beforeState)
+                .param("afterState", afterState)
+                .update(keyHolder, "transition_seq");
+        Number seq = keyHolder.getKey();
+        if (seq == null) {
+            throw new DataIntegrityViolationException("Failed to obtain audit transition_seq.");
+        }
+        return seq.longValue();
+    }
+
+    void insertQueueReorderInboxMessage(UUID recipientId, long transitionSeq, UUID requestId, int gpuId,
+                                        String title, String body, Instant createdAt) {
+        jdbc.sql("""
+                INSERT INTO inbox_messages (
+                    id, recipient_id, transition_seq, allocation_id, request_id, gpu_id,
+                    message_type, title, body, created_at
+                ) VALUES (
+                    :id, :recipientId, :transitionSeq, NULL, :requestId, :gpuId,
+                    'QUEUE_REORDERED', :title, :body, :createdAt
+                )
+                """)
+                .param("id", UUID.randomUUID())
+                .param("recipientId", recipientId)
+                .param("transitionSeq", transitionSeq)
+                .param("requestId", requestId)
+                .param("gpuId", gpuId)
+                .param("title", title)
+                .param("body", body)
+                .param("createdAt", createdAt.atOffset(ZoneOffset.UTC))
+                .update();
+    }
+
+    long insertRequestAudit(UUID adminId, Instant occurredAt, String action, UUID requestId,
+                            String reason, String beforeState, String afterState) {
+        var keyHolder = new GeneratedKeyHolder();
+        jdbc.sql("""
+                INSERT INTO audit_logs (
+                    occurred_at, actor_type, actor_account_id, action,
+                    request_id, queue_item_id, allocation_id, gpu_id,
+                    reason, before_state, after_state
+                ) VALUES (
+                    :occurredAt, 'ADMIN', :actorAccountId, :action,
+                    :requestId, NULL, NULL, NULL,
+                    :reason, :beforeState, :afterState
+                )
+                """)
+                .param("occurredAt", occurredAt.atOffset(ZoneOffset.UTC))
+                .param("actorAccountId", adminId)
+                .param("action", action)
+                .param("requestId", requestId)
+                .param("reason", reason)
+                .param("beforeState", beforeState)
+                .param("afterState", afterState)
+                .update(keyHolder, "transition_seq");
+        Number seq = keyHolder.getKey();
+        if (seq == null) {
+            throw new DataIntegrityViolationException("Failed to obtain audit transition_seq.");
+        }
+        return seq.longValue();
+    }
+
+    void insertRequestInboxMessage(UUID recipientId, long transitionSeq, UUID requestId,
+                                   String messageType, String title, String body, Instant createdAt) {
+        jdbc.sql("""
+                INSERT INTO inbox_messages (
+                    id, recipient_id, transition_seq, allocation_id, request_id, gpu_id,
+                    message_type, title, body, created_at
+                ) VALUES (
+                    :id, :recipientId, :transitionSeq, NULL, :requestId, NULL,
+                    :messageType, :title, :body, :createdAt
+                )
+                """)
+                .param("id", UUID.randomUUID())
+                .param("recipientId", recipientId)
+                .param("transitionSeq", transitionSeq)
+                .param("requestId", requestId)
+                .param("messageType", messageType)
+                .param("title", title)
+                .param("body", body)
+                .param("createdAt", createdAt.atOffset(ZoneOffset.UTC))
+                .update();
     }
 
     boolean markMessageRead(UUID memberId, UUID messageId, Instant readAt) {
@@ -582,7 +1003,7 @@ public class AllocationRepository {
                        m.created_at,
                        m.read_at
                 FROM inbox_messages m
-                JOIN allocations a ON a.id = m.allocation_id AND a.gpu_id = m.gpu_id
+                LEFT JOIN allocations a ON a.id = m.allocation_id AND a.gpu_id = m.gpu_id
                 WHERE m.recipient_id = :memberId
                 ORDER BY m.transition_seq DESC
                 """)
@@ -606,7 +1027,7 @@ public class AllocationRepository {
                        m.created_at,
                        m.read_at
                 FROM inbox_messages m
-                JOIN allocations a ON a.id = m.allocation_id AND a.gpu_id = m.gpu_id
+                LEFT JOIN allocations a ON a.id = m.allocation_id AND a.gpu_id = m.gpu_id
                 WHERE m.recipient_id = :memberId AND m.id = :messageId
                 """)
                 .param("memberId", memberId)
@@ -647,6 +1068,8 @@ public class AllocationRepository {
     }
 
     private InboxMessageView readMessage(ResultSet row, int index) throws SQLException {
+        OffsetDateTime rawAllocatedAt = row.getObject("allocated_at", OffsetDateTime.class);
+        OffsetDateTime rawExpiresAt = row.getObject("expires_at", OffsetDateTime.class);
         OffsetDateTime rawReadAt = row.getObject("read_at", OffsetDateTime.class);
         return new InboxMessageView(
                 row.getString("id"),
@@ -657,8 +1080,8 @@ public class AllocationRepository {
                 row.getString("gpu_id"),
                 row.getString("title"),
                 row.getString("body"),
-                row.getObject("allocated_at", OffsetDateTime.class).toInstant(),
-                row.getObject("expires_at", OffsetDateTime.class).toInstant(),
+                rawAllocatedAt != null ? rawAllocatedAt.toInstant() : null,
+                rawExpiresAt != null ? rawExpiresAt.toInstant() : null,
                 row.getObject("created_at", OffsetDateTime.class).toInstant(),
                 rawReadAt != null ? rawReadAt.toInstant() : null);
     }

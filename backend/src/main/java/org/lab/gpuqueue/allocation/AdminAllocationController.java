@@ -6,7 +6,11 @@ import java.util.UUID;
 
 import jakarta.servlet.http.HttpServletRequest;
 import org.lab.gpuqueue.allocation.AllocationRepository.PendingVerificationView;
+import org.lab.gpuqueue.allocation.AllocationService.AdminGpuQueueView;
+import org.lab.gpuqueue.allocation.AllocationService.EmergencyReviewResult;
+import org.lab.gpuqueue.allocation.AllocationService.ReorderResult;
 import org.lab.gpuqueue.allocation.AllocationService.VerifiedReleaseResult;
+import org.lab.gpuqueue.allocation.RequestRepository.AdminEmergencyRequestView;
 import org.lab.gpuqueue.security.AccountPrincipal;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -33,9 +37,97 @@ class AdminAllocationController {
         this.allocations = allocations;
     }
 
+    @GetMapping("/api/admin/audit-logs")
+    ResponseEntity<List<AllocationRepository.AuditLogView>> listAuditLogs(
+            @org.springframework.web.bind.annotation.RequestParam(required = false) String requestId,
+            @org.springframework.web.bind.annotation.RequestParam(required = false) String allocationId) {
+        UUID parsedRequestId = parseOptionalUuid(requestId, "requestId");
+        UUID parsedAllocationId = parseOptionalUuid(allocationId, "allocationId");
+        return ResponseEntity.ok(allocations.listAuditLogs(parsedRequestId, parsedAllocationId));
+    }
+
+    private UUID parseOptionalUuid(String raw, String field) {
+        if (raw == null || raw.isBlank()) {
+            return null;
+        }
+        try {
+            return UUID.fromString(raw.strip());
+        } catch (IllegalArgumentException exception) {
+            throw new AllocationService.InvalidRequest(field, "标识格式无效。");
+        }
+    }
+
     @GetMapping("/api/admin/allocations/pending-verification")
     ResponseEntity<List<PendingVerificationView>> listPendingVerification() {
         return ResponseEntity.ok(allocations.listPendingVerificationAllocations());
+    }
+
+    @GetMapping("/api/admin/allocations/active")
+    ResponseEntity<List<PendingVerificationView>> listActiveAllocations() {
+        return ResponseEntity.ok(allocations.listActiveAllocationsForAdmin());
+    }
+
+    @PostMapping(path = "/api/admin/allocations/{id}/extend",
+            consumes = MediaType.APPLICATION_FORM_URLENCODED_VALUE)
+    ResponseEntity<AllocationService.DirectExtendResult> directExtend(
+            @AuthenticationPrincipal AccountPrincipal principal,
+            @PathVariable String id,
+            @RequestBody MultiValueMap<String, String> form) {
+        UUID allocationId;
+        try {
+            allocationId = UUID.fromString(id);
+        } catch (IllegalArgumentException exception) {
+            return ResponseEntity.notFound().build();
+        }
+        String seenStatus = form.getFirst("seenStatus");
+        java.time.Instant seenExpiresAt = parseOptionalInstant(form.getFirst("seenExpiresAt"), "seenExpiresAt");
+        java.time.Instant newExpiresAt = parseOptionalInstant(form.getFirst("newExpiresAt"), "newExpiresAt");
+        String reason = form.getFirst("reason");
+        return allocations.adminDirectExtend(
+                        UUID.fromString(principal.id()), allocationId, seenStatus, seenExpiresAt, newExpiresAt, reason)
+                .map(ResponseEntity::ok)
+                .orElseGet(() -> ResponseEntity.notFound().build());
+    }
+
+    @PostMapping(path = "/api/admin/allocations/{id}/proxy-return",
+            consumes = MediaType.APPLICATION_FORM_URLENCODED_VALUE)
+    ResponseEntity<VerifiedReleaseResult> proxyReturn(
+            @AuthenticationPrincipal AccountPrincipal principal,
+            @PathVariable String id,
+            @RequestBody MultiValueMap<String, String> form) {
+        UUID allocationId;
+        try {
+            allocationId = UUID.fromString(id);
+        } catch (IllegalArgumentException exception) {
+            return ResponseEntity.notFound().build();
+        }
+        String seenStatus = form.getFirst("seenStatus");
+        boolean verified = "true".equalsIgnoreCase(form.getFirst("verified"));
+        String reason = form.getFirst("reason");
+        return allocations.adminProxyReturn(
+                        UUID.fromString(principal.id()), allocationId, seenStatus, verified, reason)
+                .map(ResponseEntity::ok)
+                .orElseGet(() -> ResponseEntity.notFound().build());
+    }
+
+    @PostMapping(path = "/api/admin/allocations/{id}/revoke",
+            consumes = MediaType.APPLICATION_FORM_URLENCODED_VALUE)
+    ResponseEntity<VerifiedReleaseResult> revoke(
+            @AuthenticationPrincipal AccountPrincipal principal,
+            @PathVariable String id,
+            @RequestBody MultiValueMap<String, String> form) {
+        UUID allocationId;
+        try {
+            allocationId = UUID.fromString(id);
+        } catch (IllegalArgumentException exception) {
+            return ResponseEntity.notFound().build();
+        }
+        String seenStatus = form.getFirst("seenStatus");
+        String reason = form.getFirst("reason");
+        return allocations.adminRevoke(
+                        UUID.fromString(principal.id()), allocationId, seenStatus, reason)
+                .map(ResponseEntity::ok)
+                .orElseGet(() -> ResponseEntity.notFound().build());
     }
 
     @PostMapping(path = "/api/admin/allocations/{id}/verified-release",
@@ -57,6 +149,124 @@ class AdminAllocationController {
                         UUID.fromString(principal.id()), allocationId, seenStatus, verified, reason)
                 .map(ResponseEntity::ok)
                 .orElseGet(() -> ResponseEntity.notFound().build());
+    }
+
+    @GetMapping("/api/admin/requests/emergency-pending")
+    ResponseEntity<List<AdminEmergencyRequestView>> listPendingEmergencyRequests() {
+        return ResponseEntity.ok(allocations.listPendingEmergencyRequests());
+    }
+
+    @PostMapping(path = "/api/admin/requests/{id}/emergency-review",
+            consumes = MediaType.APPLICATION_FORM_URLENCODED_VALUE)
+    ResponseEntity<EmergencyReviewResult> reviewEmergencyRequest(
+            @AuthenticationPrincipal AccountPrincipal principal,
+            @PathVariable String id,
+            @RequestBody MultiValueMap<String, String> form) {
+        UUID requestId;
+        try {
+            requestId = UUID.fromString(id);
+        } catch (IllegalArgumentException exception) {
+            return ResponseEntity.notFound().build();
+        }
+        String decision = form.getFirst("decision");
+        String reason = form.getFirst("reason");
+        return allocations.reviewEmergencyRequest(
+                        UUID.fromString(principal.id()), requestId, decision, reason)
+                .map(ResponseEntity::ok)
+                .orElseGet(() -> ResponseEntity.notFound().build());
+    }
+
+    @GetMapping("/api/admin/queues")
+    ResponseEntity<List<AdminGpuQueueView>> listAdminQueues() {
+        return ResponseEntity.ok(allocations.listAdminQueues());
+    }
+
+    @PostMapping(path = "/api/admin/queues/{gpuId}/reorder",
+            consumes = MediaType.APPLICATION_FORM_URLENCODED_VALUE)
+    ResponseEntity<ReorderResult> reorderGpuQueue(
+            @AuthenticationPrincipal AccountPrincipal principal,
+            @PathVariable String gpuId,
+            @RequestBody MultiValueMap<String, String> form) {
+        int parsedGpuId;
+        try {
+            parsedGpuId = Integer.parseInt(gpuId);
+        } catch (NumberFormatException exception) {
+            return ResponseEntity.notFound().build();
+        }
+        UUID targetQueueItemId;
+        try {
+            String rawTarget = form.getFirst("targetQueueItemId");
+            if (rawTarget == null) {
+                throw new AllocationService.InvalidRequest("targetQueueItemId", "请选择要调整的等待项。");
+            }
+            targetQueueItemId = UUID.fromString(rawTarget);
+        } catch (IllegalArgumentException exception) {
+            throw new AllocationService.InvalidRequest("targetQueueItemId", "等待项标识格式无效。");
+        }
+        int targetPosition;
+        try {
+            String rawPos = form.getFirst("targetPosition");
+            if (rawPos == null) {
+                throw new AllocationService.InvalidRequest("targetPosition", "请填写目标位置。");
+            }
+            targetPosition = Integer.parseInt(rawPos.strip());
+        } catch (NumberFormatException exception) {
+            throw new AllocationService.InvalidRequest("targetPosition", "目标位置必须是正整数。");
+        }
+        List<String> rawSeen = form.get("seenQueueItemIds");
+        List<UUID> seenIds = new java.util.ArrayList<>();
+        if (rawSeen != null) {
+            for (String s : rawSeen) {
+                try {
+                    seenIds.add(UUID.fromString(s));
+                } catch (IllegalArgumentException exception) {
+                    throw new AllocationService.InvalidRequest("seenQueueItemIds", "所见队列快照包含无效标识。");
+                }
+            }
+        }
+        String reason = form.getFirst("reason");
+        return allocations.reorderGpuQueue(
+                        UUID.fromString(principal.id()), parsedGpuId, targetQueueItemId, targetPosition, seenIds, reason)
+                .map(ResponseEntity::ok)
+                .orElseGet(() -> ResponseEntity.notFound().build());
+    }
+
+    @GetMapping("/api/admin/renewals/pending")
+    ResponseEntity<List<AllocationRepository.RenewalRequestView>> listPendingRenewals() {
+        return ResponseEntity.ok(allocations.listPendingRenewals());
+    }
+
+    @PostMapping(path = "/api/admin/renewals/{id}/review",
+            consumes = MediaType.APPLICATION_FORM_URLENCODED_VALUE)
+    ResponseEntity<AllocationService.RenewalReviewResult> reviewRenewal(
+            @AuthenticationPrincipal AccountPrincipal principal,
+            @PathVariable String id,
+            @RequestBody MultiValueMap<String, String> form) {
+        UUID renewalId;
+        try {
+            renewalId = UUID.fromString(id);
+        } catch (IllegalArgumentException exception) {
+            return ResponseEntity.notFound().build();
+        }
+        String decision = form.getFirst("decision");
+        String reason = form.getFirst("reason");
+        java.time.Instant approvedExpiresAt = parseOptionalInstant(form.getFirst("approvedExpiresAt"), "approvedExpiresAt");
+        java.time.Instant seenExpiresAt = parseOptionalInstant(form.getFirst("seenExpiresAt"), "seenExpiresAt");
+        return allocations.reviewRenewalRequest(
+                        UUID.fromString(principal.id()), renewalId, decision, approvedExpiresAt, seenExpiresAt, reason)
+                .map(ResponseEntity::ok)
+                .orElseGet(() -> ResponseEntity.notFound().build());
+    }
+
+    private java.time.Instant parseOptionalInstant(String raw, String field) {
+        if (raw == null || raw.isBlank()) {
+            return null;
+        }
+        try {
+            return java.time.Instant.parse(raw.strip());
+        } catch (java.time.format.DateTimeParseException exception) {
+            throw new AllocationService.InvalidRequest(field, "时间格式无效，请使用 ISO-8601 时间。");
+        }
     }
 
     @ExceptionHandler(AllocationService.InvalidRequest.class)

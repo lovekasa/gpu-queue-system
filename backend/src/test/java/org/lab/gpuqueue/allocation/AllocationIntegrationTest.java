@@ -612,24 +612,6 @@ class AllocationIntegrationTest {
                 """).param("allocationId", secondAllocationGpu1).update())
                 .isInstanceOf(DataIntegrityViolationException.class);
 
-        // audit_logs unique (allocation_id, action) constraint
-        assertThatThrownBy(() -> jdbc.sql("""
-                INSERT INTO audit_logs (
-                    occurred_at, actor_type, actor_account_id, action,
-                    request_id, queue_item_id, allocation_id, gpu_id,
-                    reason, before_state, after_state
-                ) VALUES (
-                    :occurredAt, 'SYSTEM', NULL, 'ALLOCATED',
-                    :requestId, :queueItemId, :allocationId, 1,
-                    NULL, 'before', 'after'
-                )
-                """)
-                .param("occurredAt", BASE_TIME.atOffset(ZoneOffset.UTC))
-                .param("requestId", UUID.fromString(created.path("id").asText()))
-                .param("queueItemId", queueItemGpu1)
-                .param("allocationId", allocationGpu1)
-                .update()).isInstanceOf(DataIntegrityViolationException.class);
-
         // Insert a valid audit_logs row for secondAllocationGpu1 to obtain a distinct unused transition_seq.
         var keyHolder = new GeneratedKeyHolder();
         jdbc.sql("""
@@ -651,25 +633,7 @@ class AllocationIntegrationTest {
         long unusedTransitionSeq = keyHolder.getKey().longValue();
         long existingTransitionSeq = jdbc.sql("SELECT MIN(transition_seq) FROM audit_logs").query(Long.class).single();
 
-        // inbox_messages_allocation_uk: unused transition_seq + already-messaged allocationGpu1
-        assertThatThrownBy(() -> jdbc.sql("""
-                INSERT INTO inbox_messages (
-                    id, recipient_id, transition_seq, allocation_id, request_id, gpu_id,
-                    message_type, title, body, created_at
-                ) VALUES (
-                    :id, :recipientId, :transitionSeq, :allocationId, :requestId, 1,
-                    'ALLOCATED', 'dup-alloc', 'dup-alloc', :createdAt
-                )
-                """)
-                .param("id", UUID.randomUUID())
-                .param("recipientId", MEMBER_A)
-                .param("transitionSeq", unusedTransitionSeq)
-                .param("allocationId", allocationGpu1)
-                .param("requestId", UUID.fromString(created.path("id").asText()))
-                .param("createdAt", BASE_TIME.atOffset(ZoneOffset.UTC))
-                .update()).isInstanceOf(DataIntegrityViolationException.class);
-
-        // inbox_messages_transition_uk: already-used transition_seq + unmessaged secondAllocationGpu1
+        // inbox_messages_transition_recipient_uk: already-used (transition_seq, recipient_id) + unmessaged secondAllocationGpu1
         assertThatThrownBy(() -> jdbc.sql("""
                 INSERT INTO inbox_messages (
                     id, recipient_id, transition_seq, allocation_id, request_id, gpu_id,
@@ -680,7 +644,7 @@ class AllocationIntegrationTest {
                 )
                 """)
                 .param("id", UUID.randomUUID())
-                .param("recipientId", MEMBER_B)
+                .param("recipientId", MEMBER_A)
                 .param("transitionSeq", existingTransitionSeq)
                 .param("allocationId", secondAllocationGpu1)
                 .param("requestId", UUID.fromString(waitingOnGpu1.path("id").asText()))
