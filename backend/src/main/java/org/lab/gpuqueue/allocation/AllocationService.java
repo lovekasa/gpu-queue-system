@@ -941,6 +941,61 @@ public class AllocationService {
                 allocationId.toString(), Integer.toString(alloc.gpuId()), now, "RETURNED", false));
     }
 
+    @Transactional(rollbackFor = Exception.class)
+    public Optional<VerifiedReleaseResult> adminRevoke(
+            UUID adminId, UUID allocationId, String rawSeenStatus, String rawReason) {
+        String reason = rawReason == null ? "" : rawReason.strip();
+        if (reason.isEmpty()) {
+            throw new InvalidRequest("reason", "请填写非空撤销理由。");
+        }
+        if (reason.length() > 500) {
+            throw new InvalidRequest("reason", "撤销理由不能超过 500 个字符。");
+        }
+        var existingOpt = allocations.findAllocationLifecycleState(allocationId);
+        if (existingOpt.isEmpty()) {
+            return Optional.empty();
+        }
+        allocations.lockGpu(existingOpt.get().gpuId());
+        var alloc = allocations.findAllocationLifecycleState(allocationId)
+                .orElseThrow(() -> new DataIntegrityViolationException("Missing allocation " + allocationId));
+
+        if (!alloc.current() || alloc.endedAt() != null) {
+            return Optional.of(new VerifiedReleaseResult(
+                    allocationId.toString(),
+                    Integer.toString(alloc.gpuId()),
+                    alloc.endedAt(),
+                    alloc.endReason(),
+                    true));
+        }
+
+        Instant now = clock.instant();
+        String currentStatus = AllocationRepository.deriveActiveStatus(
+                alloc.startedAt(), alloc.notStartedAnomalyAt(), alloc.expiresAt(), now);
+        if (rawSeenStatus != null && !rawSeenStatus.isBlank()
+                && !currentStatus.equals(rawSeenStatus.strip().toUpperCase())) {
+            throw new StatusConflict("名额当前状态已变化（当前为 " + currentStatus + "），请刷新后重新确认。");
+        }
+
+        allocations.markAllocationEnded(allocationId, now, "REVOKED");
+        allocations.deleteCurrentAllocation(alloc.gpuId(), allocationId);
+        String beforeState = "allocationStatus=" + currentStatus;
+        String afterState = "allocationStatus=ENDED;endReason=REVOKED;endedAt=" + now;
+        long seq = allocations.insertAdminAllocationAudit(
+                adminId, now, "ADMIN_REVOKED",
+                alloc.requestId(), alloc.queueItemId(), allocationId, alloc.gpuId(),
+                reason, beforeState, afterState);
+        allocations.insertInboxMessage(
+                UUID.randomUUID(), alloc.memberId(), seq, allocationId, alloc.requestId(), alloc.gpuId(),
+                "ADMIN_REVOKED",
+                "GPU " + alloc.gpuId() + " 使用名额已被管理员主动撤销",
+                "管理员已主动撤销您的名额 " + allocationId + "（GPU " + alloc.gpuId()
+                        + "）。请立即停止使用并配合线下交接（系统不会自动停止训练进程）。理由：" + reason,
+                now);
+        allocateGpuIfIdle(alloc.gpuId(), now);
+        return Optional.of(new VerifiedReleaseResult(
+                allocationId.toString(), Integer.toString(alloc.gpuId()), now, "REVOKED", false));
+    }
+
     public record DirectExtendResult(String allocationId, String gpuId, Instant expiresAt, boolean alreadyExtended) {}
 
     public record RenewalReviewResult(AllocationRepository.RenewalRequestView renewal, boolean alreadyReviewed) {}

@@ -90,6 +90,26 @@ class AdminAllocationController {
                 .orElseGet(() -> ResponseEntity.notFound().build());
     }
 
+    @PostMapping(path = "/api/admin/allocations/{id}/revoke",
+            consumes = MediaType.APPLICATION_FORM_URLENCODED_VALUE)
+    ResponseEntity<VerifiedReleaseResult> revoke(
+            @AuthenticationPrincipal AccountPrincipal principal,
+            @PathVariable String id,
+            @RequestBody MultiValueMap<String, String> form) {
+        UUID allocationId;
+        try {
+            allocationId = UUID.fromString(id);
+        } catch (IllegalArgumentException exception) {
+            return ResponseEntity.notFound().build();
+        }
+        String seenStatus = form.getFirst("seenStatus");
+        String reason = form.getFirst("reason");
+        return allocations.adminRevoke(
+                        UUID.fromString(principal.id()), allocationId, seenStatus, reason)
+                .map(ResponseEntity::ok)
+                .orElseGet(() -> ResponseEntity.notFound().build());
+    }
+
     @PostMapping(path = "/api/admin/allocations/{id}/verified-release",
             consumes = MediaType.APPLICATION_FORM_URLENCODED_VALUE)
     ResponseEntity<VerifiedReleaseResult> verifiedRelease(

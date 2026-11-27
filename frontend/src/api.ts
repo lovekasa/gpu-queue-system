@@ -90,7 +90,7 @@ export interface ReturnAllocationResult {
 export interface InboxMessage {
   id: string
   transitionSeq: string
-  type: 'ALLOCATED' | 'UNSTARTED_EXPIRED' | 'ANOMALY' | 'OVERDUE' | 'VERIFIED_RELEASED' | 'EMERGENCY_APPROVED' | 'EMERGENCY_REJECTED' | 'QUEUE_REORDERED' | 'RENEWAL_APPROVED' | 'RENEWAL_REJECTED' | 'ADMIN_EXTENDED' | 'ADMIN_PROXY_RETURNED'
+  type: 'ALLOCATED' | 'UNSTARTED_EXPIRED' | 'ANOMALY' | 'OVERDUE' | 'VERIFIED_RELEASED' | 'EMERGENCY_APPROVED' | 'EMERGENCY_REJECTED' | 'QUEUE_REORDERED' | 'RENEWAL_APPROVED' | 'RENEWAL_REJECTED' | 'ADMIN_EXTENDED' | 'ADMIN_PROXY_RETURNED' | 'ADMIN_REVOKED'
   requestId: string
   allocationId?: string
   gpuId?: string
@@ -402,6 +402,16 @@ export async function submitAdminProxyReturn(
     reason,
   })
   const response = await post(`admin/allocations/${encodeURIComponent(allocationId)}/proxy-return`, body)
+  return response.json()
+}
+
+export async function submitAdminRevoke(
+  allocationId: string,
+  seenStatus: string,
+  reason: string,
+): Promise<VerifiedReleaseResult> {
+  const body = new URLSearchParams({ seenStatus, reason })
+  const response = await post(`admin/allocations/${encodeURIComponent(allocationId)}/revoke`, body)
   return response.json()
 }
 

@@ -5,6 +5,7 @@ import {
   getAdminActiveAllocations,
   submitAdminDirectExtend,
   submitAdminProxyReturn,
+  submitAdminRevoke,
   type PendingVerificationAllocation,
 } from './api'
 
@@ -117,12 +118,43 @@ async function submitProxyReturn(item: PendingVerificationAllocation) {
   }
 }
 
+async function submitRevoke(item: PendingVerificationAllocation) {
+  const reason = (reasons[item.id] ?? '').trim()
+  if (!reason) {
+    actionError.value = '请填写非空撤销理由。'
+    return
+  }
+  busyId.value = item.id
+  actionError.value = ''
+  feedback.value = ''
+  try {
+    const result = await submitAdminRevoke(item.id, item.status, reason)
+    feedback.value = result.alreadyEnded
+      ? `GPU ${item.gpuId} 名额已结束（${result.endReason ?? 'ENDED'}），无需重复撤销。`
+      : `已主动撤销 ${item.memberDisplayName} 的 GPU ${item.gpuId} 名额；请线下通知原成员停止使用并协调双方交接。`
+    delete reasons[item.id]
+    await loadActive()
+  } catch (error) {
+    if (error instanceof ApiError && error.status === 409) {
+      actionError.value = error.fieldError?.message ?? '名额状态已变化，已自动刷新。'
+      await loadActive()
+    } else if (error instanceof ApiError && error.fieldError?.message) {
+      actionError.value = error.fieldError.message
+    } else {
+      actionError.value = '主动撤销失败，请稍后重试。'
+    }
+  } finally {
+    busyId.value = ''
+  }
+}
+
 onMounted(loadActive)
 </script>
 
 <template>
   <section aria-labelledby="admin-direct-extend-title">
-    <h2 id="admin-direct-extend-title">管理员直接延长名额期限</h2>
+    <h2 id="admin-direct-extend-title">管理员直接延期 / 代归还 / 主动撤销</h2>
+    <p>提示：主动撤销无需等待任务完成，撤销后可立即重新分配；原进程可能继续运行，请线下通知原成员停止使用并协调双方交接。</p>
     <p v-if="loading" role="status">正在读取当前有效名额…</p>
     <div v-else-if="loadError" class="actions">
       <p class="error" role="alert">{{ loadError }}</p>
@@ -170,6 +202,13 @@ onMounted(loadActive)
               @click="submitProxyReturn(item)"
             >
               代成员归还
+            </button>
+            <button
+              type="button"
+              :disabled="props.disabled || busyId === item.id"
+              @click="submitRevoke(item)"
+            >
+              主动撤销
             </button>
           </div>
         </li>
