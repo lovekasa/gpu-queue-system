@@ -1,6 +1,6 @@
 # 开发交接入口
 
-更新时间为 2026-11-26（Asia/Shanghai）。三人顺序接续，不预设固定人员分工。
+更新时间为 2026-11-27（Asia/Shanghai）。**全部 3 个 Epic、20 个故事（Story 1.1–3.9）已完成开发、全量集成测试与 PR 合入 `main`。**
 
 ## 接手顺序
 
@@ -31,17 +31,16 @@
 | **Story 3.8：试用前验证服务运行、备份和恢复** | `done` | 已由 PR #9（`b15e94d`）合入 `main`。交付 `BackupAndRestoreIntegrationTest`，完成 `V1`–`V15` 迁移启动、重启补查与离线备份恢复验证（51/51 全绿）。证据见 [story-3.8.md](_bmad-output/implementation-artifacts/evidence/story-3.8.md)。 |
 | **Story 3.9：准备实验 A 对照与试用评价口径** | `done` | 已由 PR #9（`b15e94d`）合入 `main`。交付 `experiment-a-and-trial-plan.md` 与证据 [story-3.9.md](_bmad-output/implementation-artifacts/evidence/story-3.9.md)。 |
 
-## 下一步（供接续组员直接开始）
+## 项目完成状态与后续演示说明
 
-1. **同步与建分支**：在 `main` 拉取最新代码后新建分支（例如 `git checkout -b codex/story-3-1`），推进 **Epic 3 / Story 3.1：成员提交紧急申请并由管理员审核**（冲刺键 `3-1-成员提交紧急申请并由管理员审核`）。
-2. **Epic 3 / Story 3.1 接续要点**：
-   - 先完整阅读 `AGENTS.md`、`_bmad-output/specs/spec-gpu-queue-system/SPEC.md` 及其配套文档与 `_bmad-output/planning-artifacts/epics.md` 中 Epic 3 / Story 3.1 的验收标准。
-   - **数据库迁移（从 `V10` 起）**：切勿修改已合入 `main` 的 `V1`–`V9` 迁移脚本；新增字段或表请从 `V10__*.sql` 开始增量迁移。
-   - **事务与权限边界**：继续保持 `AllocationService` 唯一事务写入入口与 Spring Security + CSRF 防护，管理员审核与干预操作须记录不可篡改的 `audit_logs` 并向相关成员发送站内消息。
-3. **本地构建、测试与环境注意事项**：
-   - 构建与全量测试命令：`npm.cmd --prefix frontend run build` 后执行 `mvn.cmd -f backend/pom.xml verify`（若本机全局 Maven 缓存或镜像受限，可按 [运行手册](docs/development/runbook.md) 在忽略目录 `.local-data/` 生成独立 `verification-maven-settings.xml` 运行）。
+1. **工程开发已全部完成**：Epic 1（Story 1.1–1.3）、Epic 2（Story 2.1–2.8）、Epic 3（Story 3.1–3.9）全部 20 个故事均已合入 `main`（PR #9，合并提交 `b15e94d`），Flyway 迁移完整演进至 `V15`，前端构建 0 errors，后端 **51/51** 全量独立 H2 集成测试通过。
+2. **本地构建与演示运行**：
+   - 同步主线：`git checkout main && git pull --ff-only origin main`
+   - 完整构建与测试：`npm.cmd --prefix frontend run build` 后执行 `mvn.cmd -f backend/pom.xml verify`（详见 [运行手册](docs/development/runbook.md)）。
+   - 本地演示运行：使用重新打包好的 `backend/target/gpu-queue.jar`，按运行手册在独立数据目录依次执行 `migrate`、`init-admin` 与 `serve`。
+3. **可选的课程线下事项**：
+   - 如课程汇报需提交实验 A 实测对照数据，可按 [experiment-a-and-trial-plan.md](_bmad-output/implementation-artifacts/experiment-a-and-trial-plan.md) 在干净会话中实测并填写指标表。
    - 切勿提交 `.local-data/`、数据库文件、凭据或本地未跟踪课程材料（如 `_bmad-output/course-source/`）。
-   - **课程实验 A 提醒**：D047、D048 已确定本地 H2 顺序验收；若后续选定某对难度相当的故事作为实验 A 的 X/Y 对照（见 Story 3.9），必须在该故事开始实现前完成实验 A 对照方案准备，不将日常普通开发充作干净会话实验结果。
 
 ## 交接历史
 
@@ -68,3 +67,4 @@
 | 2026-11-26 | 接续完成 Story 2.5（`V7__allocation_expiry.sql`、三分支自动到期/24h 未开始异常/已开始逾期处理、扫描器扩展与前端状态展示）；通过前端构建与 36 项独立 H2 集成测试（0 失败/错误/跳过），规格标 `done`、冲刺标 `review`，创建本地提交待推送合并。 |
 | 2026-11-26 | 接续完成 Story 2.6（`V8__admin_verified_release.sql`、管理员待核实列表与核实释放接口、所见状态 `409` 校验、同事务后继交接及 `AdminVerifiedRelease.vue`）；通过前端构建与 38 项独立 H2 集成测试（0 失败/错误/跳过），规格标 `done`、冲刺标 `review`，创建本地提交待推送合并。 |
 | 2026-11-26 | 接续完成 Story 2.7（`GET /api/queues` 严格两字段公开等待队列与 `PublicQueues.vue`）与 Story 2.8（`V9__inbox_read_at.sql`、`POST /api/messages/{id}/read` 显式幂等已读与前端逐条标记已读），通过前端构建与 40 项独立 H2 集成测试；推送 `codex/story-2-3` 并通过 PR #8（`2153e74`）合入 `main`，Epic 2 全部 8 个故事完成，下一待办为 Epic 3 / Story 3.1。 |
+| 2026-11-27 | 在 `codex/story-3-1` 依次完成 Epic 3 全部 Story 3.1–3.9（`V10`–`V15` 迁移、紧急审核、AD-7 队列调序、续期审核与 D039 边界、直接延期、核实代归还、主动撤销、管理员干预历史追溯、启停与离线备份恢复测试及实验 A/试用评价方案）；前端构建 0 errors，后端 51/51 全量集成测试通过；通过 PR #9（`b15e94d`）合入 `main` 并标记 Epic 3 全部 `done`，项目全部 20 个故事开发完成。 |
