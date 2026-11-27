@@ -90,7 +90,7 @@ export interface ReturnAllocationResult {
 export interface InboxMessage {
   id: string
   transitionSeq: string
-  type: 'ALLOCATED' | 'UNSTARTED_EXPIRED' | 'ANOMALY' | 'OVERDUE' | 'VERIFIED_RELEASED' | 'EMERGENCY_APPROVED' | 'EMERGENCY_REJECTED'
+  type: 'ALLOCATED' | 'UNSTARTED_EXPIRED' | 'ANOMALY' | 'OVERDUE' | 'VERIFIED_RELEASED' | 'EMERGENCY_APPROVED' | 'EMERGENCY_REJECTED' | 'QUEUE_REORDERED'
   requestId: string
   allocationId?: string
   gpuId?: string
@@ -266,6 +266,51 @@ export async function reviewEmergencyRequest(
 ): Promise<EmergencyReviewResult> {
   const body = new URLSearchParams({ decision, reason })
   const response = await post(`admin/requests/${encodeURIComponent(requestId)}/emergency-review`, body)
+  return response.json()
+}
+
+export interface AdminQueueItem {
+  position: number
+  queueItemId: string
+  requestId: string
+  memberName: string
+  durationHours: number
+  submittedAt: string
+  receiveSeq: string
+  approvedEmergency: boolean
+  boostedOver72Hours: boolean
+}
+
+export interface AdminGpuQueue {
+  gpuId: string
+  waiting: AdminQueueItem[]
+}
+
+export interface ReorderResult {
+  gpuId: string
+  changed: boolean
+  waiting: AdminQueueItem[]
+}
+
+export async function getAdminQueues(): Promise<AdminGpuQueue[]> {
+  const response = await request('admin/queues')
+  return response.json()
+}
+
+export async function reorderAdminQueue(
+  gpuId: string,
+  targetQueueItemId: string,
+  targetPosition: number,
+  seenQueueItemIds: string[],
+  reason: string,
+): Promise<ReorderResult> {
+  const body = new URLSearchParams({
+    targetQueueItemId,
+    targetPosition: String(targetPosition),
+    reason,
+  })
+  seenQueueItemIds.forEach(id => body.append('seenQueueItemIds', id))
+  const response = await post(`admin/queues/${encodeURIComponent(gpuId)}/reorder`, body)
   return response.json()
 }
 

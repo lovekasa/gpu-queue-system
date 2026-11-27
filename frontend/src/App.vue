@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { onMounted, ref } from 'vue'
 import AdminEmergencyReview from './AdminEmergencyReview.vue'
+import AdminQueueReorder from './AdminQueueReorder.vue'
 import AdminVerifiedRelease from './AdminVerifiedRelease.vue'
 import GpuCatalog from './GpuCatalog.vue'
 import MemberAccountForm from './MemberAccountForm.vue'
@@ -119,6 +120,7 @@ onMounted(refreshIdentity)
       <PublicQueues />
       <MemberAccountForm v-if="identity.role === 'ADMIN'" :disabled="busy" />
       <AdminEmergencyReview v-if="identity.role === 'ADMIN'" :disabled="busy" />
+      <AdminQueueReorder v-if="identity.role === 'ADMIN'" :disabled="busy" />
       <AdminVerifiedRelease v-if="identity.role === 'ADMIN'" :disabled="busy" />
       <OrdinaryRequests v-if="identity.role === 'MEMBER'" :disabled="busy" />
       <p v-if="errorMessage" class="error" role="alert">{{ errorMessage }}</p>

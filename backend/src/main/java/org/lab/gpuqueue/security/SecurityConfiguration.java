@@ -35,10 +35,12 @@ public class SecurityConfiguration {
                         .requestMatchers(HttpMethod.POST,
                                 "/api/admin/members",
                                 "/api/admin/allocations/*/verified-release",
-                                "/api/admin/requests/*/emergency-review").hasRole("ADMIN")
+                                "/api/admin/requests/*/emergency-review",
+                                "/api/admin/queues/*/reorder").hasRole("ADMIN")
                         .requestMatchers(HttpMethod.GET,
                                 "/api/admin/allocations/pending-verification",
-                                "/api/admin/requests/emergency-pending").hasRole("ADMIN")
+                                "/api/admin/requests/emergency-pending",
+                                "/api/admin/queues").hasRole("ADMIN")
                         .requestMatchers(HttpMethod.POST,
                                 "/api/requests",
                                 "/api/allocations/*/start",

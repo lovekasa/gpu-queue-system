@@ -431,7 +431,8 @@ public class AllocationService {
                 nameByQueueItem.put(named.candidate().queueItemId(), named.memberName());
                 candidates.add(named.candidate());
             }
-            var ordered = orderingPolicy.order(candidates, evaluationTime);
+            var rules = allocations.findReorderRules(gpuId);
+            var ordered = orderingPolicy.order(candidates, rules, evaluationTime);
             var entries = new ArrayList<PublicQueueEntryView>(ordered.size());
             for (int i = 0; i < ordered.size(); i++) {
                 entries.add(new PublicQueueEntryView(i + 1, nameByQueueItem.get(ordered.get(i).queueItemId())));
@@ -472,7 +473,8 @@ public class AllocationService {
             return Optional.empty();
         }
         var candidates = allocations.findWaitingCandidates(gpuId);
-        var winnerOptional = orderingPolicy.selectNext(candidates, evaluationTime);
+        var rules = allocations.findReorderRules(gpuId);
+        var winnerOptional = orderingPolicy.selectNext(candidates, rules, evaluationTime);
         if (winnerOptional.isEmpty()) {
             return Optional.empty();
         }
@@ -529,6 +531,157 @@ public class AllocationService {
                                         String endReason, boolean alreadyEnded) {}
 
     public record MarkMessageReadResult(InboxMessageView message, boolean alreadyRead) {}
+
+    @Transactional(readOnly = true)
+    public List<AdminGpuQueueView> listAdminQueues() {
+        Instant evaluationTime = clock.instant();
+        var gpuIds = allocations.listAllGpuIds();
+        var result = new ArrayList<AdminGpuQueueView>(gpuIds.size());
+        for (Integer gpuId : gpuIds) {
+            result.add(buildAdminGpuQueue(gpuId, evaluationTime));
+        }
+        return result;
+    }
+
+    @Transactional(rollbackFor = Exception.class)
+    public Optional<ReorderResult> reorderGpuQueue(UUID adminId, int gpuId, UUID targetQueueItemId,
+                                                   int targetPosition, List<UUID> seenQueueItemIds,
+                                                   String rawReason) {
+        String reason = rawReason == null ? "" : rawReason.strip();
+        if (reason.isEmpty()) {
+            throw new InvalidRequest("reason", "请填写非空调序理由。");
+        }
+        if (reason.length() > 500) {
+            throw new InvalidRequest("reason", "调序理由不能超过 500 个字符。");
+        }
+        if (seenQueueItemIds == null || seenQueueItemIds.isEmpty()) {
+            throw new InvalidRequest("seenQueueItemIds", "缺少所见队列顺序快照，请刷新后重试。");
+        }
+        if (!allocations.lockGpu(gpuId)) {
+            return Optional.empty();
+        }
+        Instant now = clock.instant();
+        var namedCandidates = allocations.findNamedWaitingCandidates(gpuId);
+        var nameByQueueItem = new java.util.HashMap<UUID, String>(namedCandidates.size());
+        var candidates = new ArrayList<QueueOrderingPolicy.WaitingCandidate>(namedCandidates.size());
+        for (NamedWaitingCandidate named : namedCandidates) {
+            nameByQueueItem.put(named.candidate().queueItemId(), named.memberName());
+            candidates.add(named.candidate());
+        }
+        var rules = allocations.findReorderRules(gpuId);
+        var current = orderingPolicy.order(candidates, rules, now);
+        List<UUID> currentIds = current.stream().map(QueueOrderingPolicy.WaitingCandidate::queueItemId).toList();
+        if (!currentIds.equals(seenQueueItemIds)) {
+            throw new StatusConflict("当前等待队列顺序已发生变化，请刷新后重新确认。");
+        }
+        if (targetPosition < 1 || targetPosition > current.size()) {
+            throw new InvalidRequest("targetPosition", "目标位置必须在 1 至 " + current.size() + " 之间。");
+        }
+        int currentIndex = currentIds.indexOf(targetQueueItemId);
+        if (currentIndex < 0) {
+            throw new InvalidRequest("targetQueueItemId", "目标等待项不在当前 GPU 的等待队列中。");
+        }
+        if (currentIndex == targetPosition - 1) {
+            return Optional.of(new ReorderResult(Integer.toString(gpuId), false,
+                    toAdminQueueItems(current, nameByQueueItem, now)));
+        }
+
+        var updatedList = new ArrayList<>(current);
+        var target = updatedList.remove(currentIndex);
+        updatedList.add(targetPosition - 1, target);
+
+        UUID beforeQueueItemId = targetPosition < updatedList.size()
+                ? updatedList.get(targetPosition).queueItemId()
+                : null;
+        UUID afterQueueItemId = targetPosition > 1
+                ? updatedList.get(targetPosition - 2).queueItemId()
+                : null;
+
+        allocations.insertReorderRule(gpuId, targetQueueItemId, beforeQueueItemId, afterQueueItemId, adminId, reason, now);
+
+        String beforeState = currentIds.stream().map(UUID::toString).collect(java.util.stream.Collectors.joining(","));
+        String afterState = updatedList.stream().map(c -> c.queueItemId().toString())
+                .collect(java.util.stream.Collectors.joining(","));
+        long transitionSeq = allocations.insertQueueReorderAudit(
+                adminId, now, target.requestId(), targetQueueItemId, gpuId, reason, beforeState, afterState);
+
+        // Notify target member and every other waiting member whose position changed (once per member).
+        var beforePos = new java.util.HashMap<UUID, Integer>();
+        for (int i = 0; i < current.size(); i++) {
+            beforePos.put(current.get(i).queueItemId(), i + 1);
+        }
+        var notifiedMembers = new java.util.LinkedHashSet<UUID>();
+        notifiedMembers.add(target.memberId());
+        allocations.insertQueueReorderInboxMessage(
+                target.memberId(), transitionSeq, target.requestId(), gpuId,
+                "GPU " + gpuId + " 排队顺序已调整",
+                "管理员已将您在 GPU " + gpuId + " 的等待项调整至第 " + targetPosition + " 位（原第 " + (currentIndex + 1) + " 位）。理由：" + reason,
+                now);
+        for (int i = 0; i < updatedList.size(); i++) {
+            var item = updatedList.get(i);
+            int oldPos = beforePos.get(item.queueItemId());
+            int newPos = i + 1;
+            if (oldPos != newPos && notifiedMembers.add(item.memberId())) {
+                allocations.insertQueueReorderInboxMessage(
+                        item.memberId(), transitionSeq, item.requestId(), gpuId,
+                        "GPU " + gpuId + " 排队顺序受调序影响",
+                        "因管理员调整 GPU " + gpuId + " 等待队列顺序，您在 GPU " + gpuId + " 的等待位置由第 " + oldPos + " 位变为第 " + newPos + " 位。理由：" + reason,
+                        now);
+            }
+        }
+
+        return Optional.of(new ReorderResult(Integer.toString(gpuId), true,
+                toAdminQueueItems(updatedList, nameByQueueItem, now)));
+    }
+
+    private AdminGpuQueueView buildAdminGpuQueue(int gpuId, Instant evaluationTime) {
+        var namedCandidates = allocations.findNamedWaitingCandidates(gpuId);
+        var nameByQueueItem = new java.util.HashMap<UUID, String>(namedCandidates.size());
+        var candidates = new ArrayList<QueueOrderingPolicy.WaitingCandidate>(namedCandidates.size());
+        for (NamedWaitingCandidate named : namedCandidates) {
+            nameByQueueItem.put(named.candidate().queueItemId(), named.memberName());
+            candidates.add(named.candidate());
+        }
+        var rules = allocations.findReorderRules(gpuId);
+        var ordered = orderingPolicy.order(candidates, rules, evaluationTime);
+        return new AdminGpuQueueView(Integer.toString(gpuId), toAdminQueueItems(ordered, nameByQueueItem, evaluationTime));
+    }
+
+    private List<AdminQueueItemView> toAdminQueueItems(List<QueueOrderingPolicy.WaitingCandidate> ordered,
+                                                       java.util.Map<UUID, String> nameByQueueItem,
+                                                       Instant evaluationTime) {
+        var items = new ArrayList<AdminQueueItemView>(ordered.size());
+        for (int i = 0; i < ordered.size(); i++) {
+            var c = ordered.get(i);
+            items.add(new AdminQueueItemView(
+                    i + 1,
+                    c.queueItemId().toString(),
+                    c.requestId().toString(),
+                    nameByQueueItem.get(c.queueItemId()),
+                    c.durationHours(),
+                    c.submittedAt(),
+                    Long.toString(c.receiveSeq()),
+                    c.approvedEmergency(),
+                    orderingPolicy.isBoostedOver72Hours(c.submittedAt(), evaluationTime)));
+        }
+        return items;
+    }
+
+    public record AdminQueueItemView(
+            int position,
+            String queueItemId,
+            String requestId,
+            String memberName,
+            int durationHours,
+            Instant submittedAt,
+            String receiveSeq,
+            boolean approvedEmergency,
+            boolean boostedOver72Hours
+    ) {}
+
+    public record AdminGpuQueueView(String gpuId, List<AdminQueueItemView> waiting) {}
+
+    public record ReorderResult(String gpuId, boolean changed, List<AdminQueueItemView> waiting) {}
 
     public record EmergencyReviewResult(RequestRepository.AdminEmergencyRequestView request, boolean alreadyReviewed) {}
 

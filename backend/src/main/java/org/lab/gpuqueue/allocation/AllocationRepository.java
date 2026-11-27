@@ -558,6 +558,101 @@ public class AllocationRepository {
                 .list();
     }
 
+    List<QueueOrderingPolicy.ReorderRule> findReorderRules(int gpuId) {
+        return jdbc.sql("""
+                SELECT id, target_queue_item_id, before_queue_item_id, after_queue_item_id
+                FROM queue_reorders
+                WHERE gpu_id = :gpuId
+                ORDER BY id ASC
+                """)
+                .param("gpuId", gpuId)
+                .query((row, index) -> new QueueOrderingPolicy.ReorderRule(
+                        row.getLong("id"),
+                        row.getObject("target_queue_item_id", UUID.class),
+                        row.getObject("before_queue_item_id", UUID.class),
+                        row.getObject("after_queue_item_id", UUID.class)))
+                .list();
+    }
+
+    long insertReorderRule(int gpuId, UUID targetQueueItemId, UUID beforeQueueItemId, UUID afterQueueItemId,
+                           UUID adminId, String reason, Instant createdAt) {
+        var keyHolder = new GeneratedKeyHolder();
+        jdbc.sql("""
+                INSERT INTO queue_reorders (
+                    gpu_id, target_queue_item_id, before_queue_item_id, after_queue_item_id,
+                    actor_account_id, reason, created_at
+                ) VALUES (
+                    :gpuId, :targetQueueItemId, :beforeQueueItemId, :afterQueueItemId,
+                    :actorAccountId, :reason, :createdAt
+                )
+                """)
+                .param("gpuId", gpuId)
+                .param("targetQueueItemId", targetQueueItemId)
+                .param("beforeQueueItemId", beforeQueueItemId)
+                .param("afterQueueItemId", afterQueueItemId)
+                .param("actorAccountId", adminId)
+                .param("reason", reason)
+                .param("createdAt", createdAt.atOffset(ZoneOffset.UTC))
+                .update(keyHolder, "id");
+        Number id = keyHolder.getKey();
+        if (id == null) {
+            throw new DataIntegrityViolationException("Failed to obtain queue_reorders id.");
+        }
+        return id.longValue();
+    }
+
+    long insertQueueReorderAudit(UUID adminId, Instant occurredAt, UUID requestId, UUID targetQueueItemId, int gpuId,
+                                 String reason, String beforeState, String afterState) {
+        var keyHolder = new GeneratedKeyHolder();
+        jdbc.sql("""
+                INSERT INTO audit_logs (
+                    occurred_at, actor_type, actor_account_id, action,
+                    request_id, queue_item_id, allocation_id, gpu_id,
+                    reason, before_state, after_state
+                ) VALUES (
+                    :occurredAt, 'ADMIN', :actorAccountId, 'QUEUE_REORDERED',
+                    :requestId, :queueItemId, NULL, :gpuId,
+                    :reason, :beforeState, :afterState
+                )
+                """)
+                .param("occurredAt", occurredAt.atOffset(ZoneOffset.UTC))
+                .param("actorAccountId", adminId)
+                .param("requestId", requestId)
+                .param("queueItemId", targetQueueItemId)
+                .param("gpuId", gpuId)
+                .param("reason", reason)
+                .param("beforeState", beforeState)
+                .param("afterState", afterState)
+                .update(keyHolder, "transition_seq");
+        Number seq = keyHolder.getKey();
+        if (seq == null) {
+            throw new DataIntegrityViolationException("Failed to obtain audit transition_seq.");
+        }
+        return seq.longValue();
+    }
+
+    void insertQueueReorderInboxMessage(UUID recipientId, long transitionSeq, UUID requestId, int gpuId,
+                                        String title, String body, Instant createdAt) {
+        jdbc.sql("""
+                INSERT INTO inbox_messages (
+                    id, recipient_id, transition_seq, allocation_id, request_id, gpu_id,
+                    message_type, title, body, created_at
+                ) VALUES (
+                    :id, :recipientId, :transitionSeq, NULL, :requestId, :gpuId,
+                    'QUEUE_REORDERED', :title, :body, :createdAt
+                )
+                """)
+                .param("id", UUID.randomUUID())
+                .param("recipientId", recipientId)
+                .param("transitionSeq", transitionSeq)
+                .param("requestId", requestId)
+                .param("gpuId", gpuId)
+                .param("title", title)
+                .param("body", body)
+                .param("createdAt", createdAt.atOffset(ZoneOffset.UTC))
+                .update();
+    }
+
     long insertRequestAudit(UUID adminId, Instant occurredAt, String action, UUID requestId,
                             String reason, String beforeState, String afterState) {
         var keyHolder = new GeneratedKeyHolder();

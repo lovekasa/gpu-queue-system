@@ -669,7 +669,7 @@ class AllocationIntegrationTest {
                 .param("createdAt", BASE_TIME.atOffset(ZoneOffset.UTC))
                 .update()).isInstanceOf(DataIntegrityViolationException.class);
 
-        // inbox_messages_transition_uk: already-used transition_seq + unmessaged secondAllocationGpu1
+        // inbox_messages_transition_recipient_uk: already-used (transition_seq, recipient_id) + unmessaged secondAllocationGpu1
         assertThatThrownBy(() -> jdbc.sql("""
                 INSERT INTO inbox_messages (
                     id, recipient_id, transition_seq, allocation_id, request_id, gpu_id,
@@ -680,7 +680,7 @@ class AllocationIntegrationTest {
                 )
                 """)
                 .param("id", UUID.randomUUID())
-                .param("recipientId", MEMBER_B)
+                .param("recipientId", MEMBER_A)
                 .param("transitionSeq", existingTransitionSeq)
                 .param("allocationId", secondAllocationGpu1)
                 .param("requestId", UUID.fromString(waitingOnGpu1.path("id").asText()))
