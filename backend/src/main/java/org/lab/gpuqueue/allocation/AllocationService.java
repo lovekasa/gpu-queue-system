@@ -815,6 +815,77 @@ public class AllocationService {
         return Optional.of(new RenewalReviewResult(refreshed, false));
     }
 
+    @Transactional(readOnly = true)
+    public List<PendingVerificationView> listActiveAllocationsForAdmin() {
+        return allocations.listActiveAllocationsForAdmin(clock.instant());
+    }
+
+    @Transactional(rollbackFor = Exception.class)
+    public Optional<DirectExtendResult> adminDirectExtend(
+            UUID adminId, UUID allocationId, String rawSeenStatus,
+            Instant seenExpiresAt, Instant newExpiresAt, String rawReason) {
+        String reason = rawReason == null ? "" : rawReason.strip();
+        if (reason.isEmpty()) {
+            throw new InvalidRequest("reason", "请填写非空延期理由。");
+        }
+        if (reason.length() > 500) {
+            throw new InvalidRequest("reason", "延期理由不能超过 500 个字符。");
+        }
+        if (newExpiresAt == null) {
+            throw new InvalidRequest("newExpiresAt", "请填写有效的新到期时间。");
+        }
+        var existingOpt = allocations.findAllocationLifecycleState(allocationId);
+        if (existingOpt.isEmpty()) {
+            return Optional.empty();
+        }
+        allocations.lockGpu(existingOpt.get().gpuId());
+        var alloc = allocations.findAllocationLifecycleState(allocationId)
+                .orElseThrow(() -> new DataIntegrityViolationException("Missing allocation " + allocationId));
+
+        if (!alloc.current() || alloc.endedAt() != null) {
+            throw new StatusConflict("该名额已结束或释放，无法直接延期。");
+        }
+        if (newExpiresAt.equals(alloc.expiresAt())) {
+            return Optional.of(new DirectExtendResult(
+                    allocationId.toString(), Integer.toString(alloc.gpuId()), alloc.expiresAt(), true));
+        }
+
+        Instant now = clock.instant();
+        String currentStatus = AllocationRepository.deriveActiveStatus(
+                alloc.startedAt(), alloc.notStartedAnomalyAt(), alloc.expiresAt(), now);
+        if (rawSeenStatus != null && !rawSeenStatus.isBlank()
+                && !currentStatus.equals(rawSeenStatus.strip().toUpperCase())) {
+            throw new StatusConflict("名额当前状态已变化（当前为 " + currentStatus + "），请刷新后重试。");
+        }
+        if (seenExpiresAt != null && !seenExpiresAt.equals(alloc.expiresAt())) {
+            throw new StatusConflict("名额当前到期时间已变化，请刷新后重试。");
+        }
+        if (!newExpiresAt.isAfter(alloc.expiresAt()) || !newExpiresAt.isAfter(now)) {
+            throw new InvalidRequest("newExpiresAt", "新到期时间必须严格晚于当前到期时间且晚于当前时间。");
+        }
+
+        Instant oldExpiresAt = alloc.expiresAt();
+        allocations.updateAllocationExpiresAt(allocationId, newExpiresAt);
+        String newStatus = AllocationRepository.deriveActiveStatus(
+                alloc.startedAt(), alloc.notStartedAnomalyAt(), newExpiresAt, now);
+        String beforeState = "status=" + currentStatus + ";expiresAt=" + oldExpiresAt;
+        String afterState = "status=" + newStatus + ";expiresAt=" + newExpiresAt;
+        long seq = allocations.insertAdminAllocationAudit(
+                adminId, now, "ADMIN_EXTENDED",
+                alloc.requestId(), alloc.queueItemId(), allocationId, alloc.gpuId(),
+                reason, beforeState, afterState);
+        allocations.insertInboxMessage(
+                UUID.randomUUID(), alloc.memberId(), seq, allocationId, alloc.requestId(), alloc.gpuId(),
+                "ADMIN_EXTENDED",
+                "GPU " + alloc.gpuId() + " 使用期限已由管理员直接延长",
+                "管理员已直接延长您的名额 " + allocationId + "（GPU " + alloc.gpuId() + "）至 " + newExpiresAt + "。理由：" + reason,
+                now);
+        return Optional.of(new DirectExtendResult(
+                allocationId.toString(), Integer.toString(alloc.gpuId()), newExpiresAt, false));
+    }
+
+    public record DirectExtendResult(String allocationId, String gpuId, Instant expiresAt, boolean alreadyExtended) {}
+
     public record RenewalReviewResult(AllocationRepository.RenewalRequestView renewal, boolean alreadyReviewed) {}
 
     public record ReorderResult(String gpuId, boolean changed, List<AdminQueueItemView> waiting) {}

@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { onMounted, ref } from 'vue'
+import AdminDirectExtend from './AdminDirectExtend.vue'
 import AdminEmergencyReview from './AdminEmergencyReview.vue'
 import AdminQueueReorder from './AdminQueueReorder.vue'
 import AdminRenewalReview from './AdminRenewalReview.vue'
@@ -123,6 +124,7 @@ onMounted(refreshIdentity)
       <AdminEmergencyReview v-if="identity.role === 'ADMIN'" :disabled="busy" />
       <AdminQueueReorder v-if="identity.role === 'ADMIN'" :disabled="busy" />
       <AdminRenewalReview v-if="identity.role === 'ADMIN'" :disabled="busy" />
+      <AdminDirectExtend v-if="identity.role === 'ADMIN'" :disabled="busy" />
       <AdminVerifiedRelease v-if="identity.role === 'ADMIN'" :disabled="busy" />
       <OrdinaryRequests v-if="identity.role === 'MEMBER'" :disabled="busy" />
       <p v-if="errorMessage" class="error" role="alert">{{ errorMessage }}</p>

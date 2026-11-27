@@ -558,6 +558,49 @@ public class AllocationRepository {
                 .list();
     }
 
+    List<PendingVerificationView> listActiveAllocationsForAdmin(Instant now) {
+        return jdbc.sql("""
+                SELECT a.id,
+                       r.id AS request_id,
+                       a.queue_item_id,
+                       a.gpu_id,
+                       acc.display_name AS member_display_name,
+                       r.duration_hours,
+                       a.allocated_at,
+                       a.expires_at,
+                       a.started_at,
+                       a.not_started_anomaly_at
+                FROM current_allocations ca
+                JOIN allocations a ON a.id = ca.allocation_id
+                JOIN queue_items qi ON qi.id = a.queue_item_id AND qi.gpu_id = a.gpu_id
+                JOIN requests r ON r.id = qi.request_id
+                JOIN accounts acc ON acc.id = r.member_id
+                WHERE a.ended_at IS NULL
+                ORDER BY a.gpu_id ASC
+                """)
+                .query((row, index) -> {
+                    OffsetDateTime rawStarted = row.getObject("started_at", OffsetDateTime.class);
+                    OffsetDateTime rawAnomaly = row.getObject("not_started_anomaly_at", OffsetDateTime.class);
+                    Instant startedAt = rawStarted != null ? rawStarted.toInstant() : null;
+                    Instant anomalyAt = rawAnomaly != null ? rawAnomaly.toInstant() : null;
+                    Instant expiresAt = row.getObject("expires_at", OffsetDateTime.class).toInstant();
+                    String status = deriveActiveStatus(startedAt, anomalyAt, expiresAt, now);
+                    return new PendingVerificationView(
+                            row.getString("id"),
+                            row.getString("request_id"),
+                            row.getString("queue_item_id"),
+                            row.getString("gpu_id"),
+                            row.getString("member_display_name"),
+                            row.getInt("duration_hours"),
+                            row.getObject("allocated_at", OffsetDateTime.class).toInstant(),
+                            expiresAt,
+                            startedAt,
+                            anomalyAt,
+                            status);
+                })
+                .list();
+    }
+
     void updateAllocationExpiresAt(UUID allocationId, Instant newExpiresAt) {
         int updated = jdbc.sql("UPDATE allocations SET expires_at = :expiresAt WHERE id = :id AND ended_at IS NULL")
                 .param("expiresAt", newExpiresAt.atOffset(ZoneOffset.UTC))

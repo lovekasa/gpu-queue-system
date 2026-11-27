@@ -90,7 +90,7 @@ export interface ReturnAllocationResult {
 export interface InboxMessage {
   id: string
   transitionSeq: string
-  type: 'ALLOCATED' | 'UNSTARTED_EXPIRED' | 'ANOMALY' | 'OVERDUE' | 'VERIFIED_RELEASED' | 'EMERGENCY_APPROVED' | 'EMERGENCY_REJECTED' | 'QUEUE_REORDERED' | 'RENEWAL_APPROVED' | 'RENEWAL_REJECTED'
+  type: 'ALLOCATED' | 'UNSTARTED_EXPIRED' | 'ANOMALY' | 'OVERDUE' | 'VERIFIED_RELEASED' | 'EMERGENCY_APPROVED' | 'EMERGENCY_REJECTED' | 'QUEUE_REORDERED' | 'RENEWAL_APPROVED' | 'RENEWAL_REJECTED' | 'ADMIN_EXTENDED'
   requestId: string
   allocationId?: string
   gpuId?: string
@@ -363,6 +363,30 @@ export async function reviewRenewalRequest(
   if (approvedExpiresAt) body.set('approvedExpiresAt', approvedExpiresAt)
   if (seenExpiresAt) body.set('seenExpiresAt', seenExpiresAt)
   const response = await post(`admin/renewals/${encodeURIComponent(renewalId)}/review`, body)
+  return response.json()
+}
+
+export interface DirectExtendResult {
+  allocationId: string
+  gpuId: string
+  expiresAt: string
+  alreadyExtended: boolean
+}
+
+export async function getAdminActiveAllocations(): Promise<PendingVerificationAllocation[]> {
+  const response = await request('admin/allocations/active')
+  return response.json()
+}
+
+export async function submitAdminDirectExtend(
+  allocationId: string,
+  seenStatus: string,
+  seenExpiresAt: string,
+  newExpiresAt: string,
+  reason: string,
+): Promise<DirectExtendResult> {
+  const body = new URLSearchParams({ seenStatus, seenExpiresAt, newExpiresAt, reason })
+  const response = await post(`admin/allocations/${encodeURIComponent(allocationId)}/extend`, body)
   return response.json()
 }
 

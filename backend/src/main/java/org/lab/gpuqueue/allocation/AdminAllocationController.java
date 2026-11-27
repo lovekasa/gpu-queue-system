@@ -42,6 +42,33 @@ class AdminAllocationController {
         return ResponseEntity.ok(allocations.listPendingVerificationAllocations());
     }
 
+    @GetMapping("/api/admin/allocations/active")
+    ResponseEntity<List<PendingVerificationView>> listActiveAllocations() {
+        return ResponseEntity.ok(allocations.listActiveAllocationsForAdmin());
+    }
+
+    @PostMapping(path = "/api/admin/allocations/{id}/extend",
+            consumes = MediaType.APPLICATION_FORM_URLENCODED_VALUE)
+    ResponseEntity<AllocationService.DirectExtendResult> directExtend(
+            @AuthenticationPrincipal AccountPrincipal principal,
+            @PathVariable String id,
+            @RequestBody MultiValueMap<String, String> form) {
+        UUID allocationId;
+        try {
+            allocationId = UUID.fromString(id);
+        } catch (IllegalArgumentException exception) {
+            return ResponseEntity.notFound().build();
+        }
+        String seenStatus = form.getFirst("seenStatus");
+        java.time.Instant seenExpiresAt = parseOptionalInstant(form.getFirst("seenExpiresAt"), "seenExpiresAt");
+        java.time.Instant newExpiresAt = parseOptionalInstant(form.getFirst("newExpiresAt"), "newExpiresAt");
+        String reason = form.getFirst("reason");
+        return allocations.adminDirectExtend(
+                        UUID.fromString(principal.id()), allocationId, seenStatus, seenExpiresAt, newExpiresAt, reason)
+                .map(ResponseEntity::ok)
+                .orElseGet(() -> ResponseEntity.notFound().build());
+    }
+
     @PostMapping(path = "/api/admin/allocations/{id}/verified-release",
             consumes = MediaType.APPLICATION_FORM_URLENCODED_VALUE)
     ResponseEntity<VerifiedReleaseResult> verifiedRelease(
