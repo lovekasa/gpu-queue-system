@@ -29,7 +29,7 @@
 # - Dev moves story to 'review', then runs code-review (fresh context, different LLM recommended)
 # - Retrospective appends its action items to action_items; the status view surfaces open ones
 generated: 11-18-2026 10:28
-last_updated: 11-27-2026 10:19
+last_updated: 11-27-2026 10:22
 project: gpu-queue-system
 project_key: NOKEY
 tracking_system: file-system
@@ -62,5 +62,5 @@ development_status:
   3-6-管理员主动撤销名额并协调线下交接: review
   3-7-管理员追溯申请与名额的干预历史: review
   3-8-试用前验证服务运行-备份和恢复: review
-  3-9-准备实验-a-对照与试用评价口径: backlog
+  3-9-准备实验-a-对照与试用评价口径: review
   epic-3-retrospective: optional
