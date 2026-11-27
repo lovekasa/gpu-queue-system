@@ -816,6 +816,11 @@ public class AllocationService {
     }
 
     @Transactional(readOnly = true)
+    public List<AllocationRepository.AuditLogView> listAuditLogs(UUID requestId, UUID allocationId) {
+        return allocations.listAuditLogs(requestId, allocationId);
+    }
+
+    @Transactional(readOnly = true)
     public List<PendingVerificationView> listActiveAllocationsForAdmin() {
         return allocations.listActiveAllocationsForAdmin(clock.instant());
     }

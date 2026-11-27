@@ -27,7 +27,8 @@
 | **Story 3.4：管理员直接延长名额期限** | `review` | 已在同分支完成实现与验证：交付 `V13__admin_direct_extend.sql`、`GET /api/admin/allocations/active`、`POST /api/admin/allocations/{id}/extend`（所见状态/期限 `409` 校验、幂等、不设 72h 上限、同事务 `ADMIN_EXTENDED` 审计与消息）及前端 `AdminDirectExtend.vue`；全量 47 项独立 H2 集成测试通过，待推送合并。证据见 [story-3.4.md](_bmad-output/implementation-artifacts/evidence/story-3.4.md)。 |
 | **Story 3.5：管理员带理由代成员归还名额** | `review` | 已在同分支完成实现与验证：交付 `V14__admin_proxy_return.sql`、`POST /api/admin/allocations/{id}/proxy-return`（强制线下核实勾选 + 非空理由、`seenStatus` `409` 校验、幂等、同事务 `ADMIN_PROXY_RETURNED` 审计/通知与后继交接）及前端代归还入口；全量 48 项独立 H2 集成测试通过，待推送合并。证据见 [story-3.5.md](_bmad-output/implementation-artifacts/evidence/story-3.5.md)。 |
 | **Story 3.6：管理员主动撤销名额并协调线下交接** | `review` | 已在同分支完成实现与验证：交付 `V15__admin_revoke.sql`、`POST /api/admin/allocations/{id}/revoke`（无需完成证明、非空理由、`seenStatus` `409` 校验、幂等、同事务 `ADMIN_REVOKED` 审计/通知与后继交接）及前端主动撤销入口与线下交接提示；全量 49 项独立 H2 集成测试通过，待推送合并。证据见 [story-3.6.md](_bmad-output/implementation-artifacts/evidence/story-3.6.md)。 |
-| **Epic 3 剩余故事（Story 3.7–3.9）** | `backlog` | 干预历史追溯、备份恢复演练及课程实验 A 准备。 |
+| **Story 3.7：管理员追溯申请与名额的干预历史** | `review` | 已在同分支完成实现与验证：交付 `GET /api/admin/audit-logs`（仅 `ADMIN`，支持按 `requestId`/`allocationId` 筛选，按 `transition_seq ASC` 返回完整操作者/时间/理由/前后状态，严格只读）及前端 `AdminAuditHistory.vue`；全量 50 项独立 H2 集成测试通过，待推送合并。证据见 [story-3.7.md](_bmad-output/implementation-artifacts/evidence/story-3.7.md)。 |
+| **Epic 3 剩余故事（Story 3.8–3.9）** | `backlog` | 备份恢复演练及课程实验 A 准备。 |
 
 ## 下一步（供接续组员直接开始）
 

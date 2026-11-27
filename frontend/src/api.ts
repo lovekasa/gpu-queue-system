@@ -415,6 +415,31 @@ export async function submitAdminRevoke(
   return response.json()
 }
 
+export interface AuditLogEntry {
+  transitionSeq: string
+  occurredAt: string
+  actorType: 'SYSTEM' | 'MEMBER' | 'ADMIN'
+  actorAccountId?: string
+  actorDisplayName?: string
+  action: string
+  requestId: string
+  queueItemId?: string
+  allocationId?: string
+  gpuId?: string
+  reason?: string
+  beforeState: string
+  afterState: string
+}
+
+export async function getAdminAuditLogs(requestId?: string, allocationId?: string): Promise<AuditLogEntry[]> {
+  const params = new URLSearchParams()
+  if (requestId?.trim()) params.set('requestId', requestId.trim())
+  if (allocationId?.trim()) params.set('allocationId', allocationId.trim())
+  const query = params.toString()
+  const response = await request(query ? `admin/audit-logs?${query}` : 'admin/audit-logs')
+  return response.json()
+}
+
 export async function createMember(loginName: string, displayName: string, password: string): Promise<Identity> {
   const response = await post('admin/members', new URLSearchParams({ loginName, displayName, password }))
   return response.json()

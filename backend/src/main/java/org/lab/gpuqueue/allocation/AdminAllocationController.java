@@ -37,6 +37,26 @@ class AdminAllocationController {
         this.allocations = allocations;
     }
 
+    @GetMapping("/api/admin/audit-logs")
+    ResponseEntity<List<AllocationRepository.AuditLogView>> listAuditLogs(
+            @org.springframework.web.bind.annotation.RequestParam(required = false) String requestId,
+            @org.springframework.web.bind.annotation.RequestParam(required = false) String allocationId) {
+        UUID parsedRequestId = parseOptionalUuid(requestId, "requestId");
+        UUID parsedAllocationId = parseOptionalUuid(allocationId, "allocationId");
+        return ResponseEntity.ok(allocations.listAuditLogs(parsedRequestId, parsedAllocationId));
+    }
+
+    private UUID parseOptionalUuid(String raw, String field) {
+        if (raw == null || raw.isBlank()) {
+            return null;
+        }
+        try {
+            return UUID.fromString(raw.strip());
+        } catch (IllegalArgumentException exception) {
+            throw new AllocationService.InvalidRequest(field, "标识格式无效。");
+        }
+    }
+
     @GetMapping("/api/admin/allocations/pending-verification")
     ResponseEntity<List<PendingVerificationView>> listPendingVerification() {
         return ResponseEntity.ok(allocations.listPendingVerificationAllocations());

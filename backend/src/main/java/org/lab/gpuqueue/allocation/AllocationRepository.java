@@ -558,6 +558,72 @@ public class AllocationRepository {
                 .list();
     }
 
+    List<AuditLogView> listAuditLogs(UUID requestId, UUID allocationId) {
+        StringBuilder sql = new StringBuilder("""
+                SELECT al.transition_seq,
+                       al.occurred_at,
+                       al.actor_type,
+                       al.actor_account_id,
+                       acc.display_name AS actor_display_name,
+                       al.action,
+                       al.request_id,
+                       al.queue_item_id,
+                       al.allocation_id,
+                       al.gpu_id,
+                       al.reason,
+                       al.before_state,
+                       al.after_state
+                FROM audit_logs al
+                LEFT JOIN accounts acc ON acc.id = al.actor_account_id
+                WHERE 1 = 1
+                """);
+        if (requestId != null) {
+            sql.append(" AND al.request_id = :requestId");
+        }
+        if (allocationId != null) {
+            sql.append(" AND al.allocation_id = :allocationId");
+        }
+        sql.append(" ORDER BY al.transition_seq ASC");
+        var stmt = jdbc.sql(sql.toString());
+        if (requestId != null) {
+            stmt = stmt.param("requestId", requestId);
+        }
+        if (allocationId != null) {
+            stmt = stmt.param("allocationId", allocationId);
+        }
+        return stmt.query((row, index) -> new AuditLogView(
+                row.getString("transition_seq"),
+                row.getObject("occurred_at", OffsetDateTime.class).toInstant(),
+                row.getString("actor_type"),
+                row.getString("actor_account_id"),
+                row.getString("actor_display_name"),
+                row.getString("action"),
+                row.getString("request_id"),
+                row.getString("queue_item_id"),
+                row.getString("allocation_id"),
+                row.getString("gpu_id"),
+                row.getString("reason"),
+                row.getString("before_state"),
+                row.getString("after_state"))).list();
+    }
+
+    @JsonInclude(JsonInclude.Include.NON_NULL)
+    public record AuditLogView(
+            String transitionSeq,
+            Instant occurredAt,
+            String actorType,
+            String actorAccountId,
+            String actorDisplayName,
+            String action,
+            String requestId,
+            String queueItemId,
+            String allocationId,
+            String gpuId,
+            String reason,
+            String beforeState,
+            String afterState
+    ) {}
+
     List<PendingVerificationView> listActiveAllocationsForAdmin(Instant now) {
         return jdbc.sql("""
                 SELECT a.id,

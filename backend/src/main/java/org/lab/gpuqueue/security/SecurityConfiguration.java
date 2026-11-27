@@ -46,7 +46,8 @@ public class SecurityConfiguration {
                                 "/api/admin/allocations/active",
                                 "/api/admin/requests/emergency-pending",
                                 "/api/admin/queues",
-                                "/api/admin/renewals/pending").hasRole("ADMIN")
+                                "/api/admin/renewals/pending",
+                                "/api/admin/audit-logs").hasRole("ADMIN")
                         .requestMatchers(HttpMethod.POST,
                                 "/api/requests",
                                 "/api/allocations/*/start",
