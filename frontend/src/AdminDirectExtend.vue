@@ -4,6 +4,7 @@ import {
   ApiError,
   getAdminActiveAllocations,
   submitAdminDirectExtend,
+  submitAdminProxyReturn,
   type PendingVerificationAllocation,
 } from './api'
 
@@ -17,6 +18,7 @@ const feedback = ref('')
 const actionError = ref('')
 const newTimes = reactive<Record<string, string>>({})
 const reasons = reactive<Record<string, string>>({})
+const proxyVerified = reactive<Record<string, boolean>>({})
 
 const shanghaiTime = new Intl.DateTimeFormat('zh-CN', {
   timeZone: 'Asia/Shanghai',
@@ -80,6 +82,41 @@ async function submitExtend(item: PendingVerificationAllocation) {
   }
 }
 
+async function submitProxyReturn(item: PendingVerificationAllocation) {
+  const reason = (reasons[item.id] ?? '').trim()
+  if (!proxyVerified[item.id]) {
+    actionError.value = '请先勾选确认已线下核实任务完成或未开始名额可释放。'
+    return
+  }
+  if (!reason) {
+    actionError.value = '请填写非空代归还理由。'
+    return
+  }
+  busyId.value = item.id
+  actionError.value = ''
+  feedback.value = ''
+  try {
+    const result = await submitAdminProxyReturn(item.id, item.status, true, reason)
+    feedback.value = result.alreadyEnded
+      ? `GPU ${item.gpuId} 名额已结束（${result.endReason ?? 'ENDED'}），无需重复代归还。`
+      : `已代 ${item.memberDisplayName} 归还 GPU ${item.gpuId} 名额并完成后续队列交接。`
+    delete reasons[item.id]
+    delete proxyVerified[item.id]
+    await loadActive()
+  } catch (error) {
+    if (error instanceof ApiError && error.status === 409) {
+      actionError.value = error.fieldError?.message ?? '名额状态已变化，已自动刷新。'
+      await loadActive()
+    } else if (error instanceof ApiError && error.fieldError?.message) {
+      actionError.value = error.fieldError.message
+    } else {
+      actionError.value = '代归还失败，请稍后重试。'
+    }
+  } finally {
+    busyId.value = ''
+  }
+}
+
 onMounted(loadActive)
 </script>
 
@@ -122,6 +159,17 @@ onMounted(loadActive)
               @click="submitExtend(item)"
             >
               直接延期
+            </button>
+            <label>
+              <input v-model="proxyVerified[item.id]" type="checkbox" :disabled="props.disabled || busyId === item.id" />
+              已线下核实完成/可释放
+            </label>
+            <button
+              type="button"
+              :disabled="props.disabled || busyId === item.id"
+              @click="submitProxyReturn(item)"
+            >
+              代成员归还
             </button>
           </div>
         </li>

@@ -69,6 +69,27 @@ class AdminAllocationController {
                 .orElseGet(() -> ResponseEntity.notFound().build());
     }
 
+    @PostMapping(path = "/api/admin/allocations/{id}/proxy-return",
+            consumes = MediaType.APPLICATION_FORM_URLENCODED_VALUE)
+    ResponseEntity<VerifiedReleaseResult> proxyReturn(
+            @AuthenticationPrincipal AccountPrincipal principal,
+            @PathVariable String id,
+            @RequestBody MultiValueMap<String, String> form) {
+        UUID allocationId;
+        try {
+            allocationId = UUID.fromString(id);
+        } catch (IllegalArgumentException exception) {
+            return ResponseEntity.notFound().build();
+        }
+        String seenStatus = form.getFirst("seenStatus");
+        boolean verified = "true".equalsIgnoreCase(form.getFirst("verified"));
+        String reason = form.getFirst("reason");
+        return allocations.adminProxyReturn(
+                        UUID.fromString(principal.id()), allocationId, seenStatus, verified, reason)
+                .map(ResponseEntity::ok)
+                .orElseGet(() -> ResponseEntity.notFound().build());
+    }
+
     @PostMapping(path = "/api/admin/allocations/{id}/verified-release",
             consumes = MediaType.APPLICATION_FORM_URLENCODED_VALUE)
     ResponseEntity<VerifiedReleaseResult> verifiedRelease(

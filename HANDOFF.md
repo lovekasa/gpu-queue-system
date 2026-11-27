@@ -25,7 +25,8 @@
 | **Story 3.2：管理员调整当前等待项的顺序** | `review` | 已在同分支完成实现与验证：交付 `V11__queue_reorders.sql`、AD-7 移动重放算法（`QueueOrderingPolicy`）、`GET /api/admin/queues`、`POST /api/admin/queues/{gpuId}/reorder`（所见快照 `409` 校验、同事务审计与受影响成员通知）及前端 `AdminQueueReorder.vue`；全量 44 项独立 H2 集成测试通过，待推送合并。证据见 [story-3.2.md](_bmad-output/implementation-artifacts/evidence/story-3.2.md)。 |
 | **Story 3.3：成员申请续期并由管理员审核** | `review` | 已在同分支完成实现与验证：交付 `V12__renewal_requests.sql`、`POST /api/allocations/{id}/renewals`、`GET /api/renewals`、`GET /api/admin/renewals/pending`、`POST /api/admin/renewals/{id}/review`（突破 72h 上限、D039 24h 跨度边界、逾期恢复与二次逾期通知、同事务审计与消息）及前端 `AdminRenewalReview.vue`；全量 46 项独立 H2 集成测试通过，待推送合并。证据见 [story-3.3.md](_bmad-output/implementation-artifacts/evidence/story-3.3.md)。 |
 | **Story 3.4：管理员直接延长名额期限** | `review` | 已在同分支完成实现与验证：交付 `V13__admin_direct_extend.sql`、`GET /api/admin/allocations/active`、`POST /api/admin/allocations/{id}/extend`（所见状态/期限 `409` 校验、幂等、不设 72h 上限、同事务 `ADMIN_EXTENDED` 审计与消息）及前端 `AdminDirectExtend.vue`；全量 47 项独立 H2 集成测试通过，待推送合并。证据见 [story-3.4.md](_bmad-output/implementation-artifacts/evidence/story-3.4.md)。 |
-| **Epic 3 剩余故事（Story 3.5–3.9）** | `backlog` | 代归还、主动撤销、干预历史追溯、备份恢复演练及课程实验 A 准备。 |
+| **Story 3.5：管理员带理由代成员归还名额** | `review` | 已在同分支完成实现与验证：交付 `V14__admin_proxy_return.sql`、`POST /api/admin/allocations/{id}/proxy-return`（强制线下核实勾选 + 非空理由、`seenStatus` `409` 校验、幂等、同事务 `ADMIN_PROXY_RETURNED` 审计/通知与后继交接）及前端代归还入口；全量 48 项独立 H2 集成测试通过，待推送合并。证据见 [story-3.5.md](_bmad-output/implementation-artifacts/evidence/story-3.5.md)。 |
+| **Epic 3 剩余故事（Story 3.6–3.9）** | `backlog` | 主动撤销、干预历史追溯、备份恢复演练及课程实验 A 准备。 |
 
 ## 下一步（供接续组员直接开始）
 

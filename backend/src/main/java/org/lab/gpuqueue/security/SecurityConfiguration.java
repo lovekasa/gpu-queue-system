@@ -36,6 +36,7 @@ public class SecurityConfiguration {
                                 "/api/admin/members",
                                 "/api/admin/allocations/*/verified-release",
                                 "/api/admin/allocations/*/extend",
+                                "/api/admin/allocations/*/proxy-return",
                                 "/api/admin/requests/*/emergency-review",
                                 "/api/admin/queues/*/reorder",
                                 "/api/admin/renewals/*/review").hasRole("ADMIN")

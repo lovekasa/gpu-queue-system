@@ -90,7 +90,7 @@ export interface ReturnAllocationResult {
 export interface InboxMessage {
   id: string
   transitionSeq: string
-  type: 'ALLOCATED' | 'UNSTARTED_EXPIRED' | 'ANOMALY' | 'OVERDUE' | 'VERIFIED_RELEASED' | 'EMERGENCY_APPROVED' | 'EMERGENCY_REJECTED' | 'QUEUE_REORDERED' | 'RENEWAL_APPROVED' | 'RENEWAL_REJECTED' | 'ADMIN_EXTENDED'
+  type: 'ALLOCATED' | 'UNSTARTED_EXPIRED' | 'ANOMALY' | 'OVERDUE' | 'VERIFIED_RELEASED' | 'EMERGENCY_APPROVED' | 'EMERGENCY_REJECTED' | 'QUEUE_REORDERED' | 'RENEWAL_APPROVED' | 'RENEWAL_REJECTED' | 'ADMIN_EXTENDED' | 'ADMIN_PROXY_RETURNED'
   requestId: string
   allocationId?: string
   gpuId?: string
@@ -387,6 +387,21 @@ export async function submitAdminDirectExtend(
 ): Promise<DirectExtendResult> {
   const body = new URLSearchParams({ seenStatus, seenExpiresAt, newExpiresAt, reason })
   const response = await post(`admin/allocations/${encodeURIComponent(allocationId)}/extend`, body)
+  return response.json()
+}
+
+export async function submitAdminProxyReturn(
+  allocationId: string,
+  seenStatus: string,
+  verified: boolean,
+  reason: string,
+): Promise<VerifiedReleaseResult> {
+  const body = new URLSearchParams({
+    seenStatus,
+    verified: verified ? 'true' : 'false',
+    reason,
+  })
+  const response = await post(`admin/allocations/${encodeURIComponent(allocationId)}/proxy-return`, body)
   return response.json()
 }
 
