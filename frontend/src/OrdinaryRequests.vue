@@ -33,6 +33,7 @@ const messages = ref<InboxMessage[]>([])
 
 const selectedGpuIds = ref<string[]>([])
 const durationHours = ref('24')
+const isEmergency = ref(false)
 const submitting = ref(false)
 const fieldError = ref<FieldError>()
 const submitFailure = ref('')
@@ -237,8 +238,9 @@ async function submit() {
   }
   submitting.value = true
   try {
-    created.value = await submitOrdinaryRequest(selectedGpuIds.value, durationHours.value)
+    created.value = await submitOrdinaryRequest(selectedGpuIds.value, durationHours.value, isEmergency.value)
     selectedGpuIds.value = []
+    isEmergency.value = false
     await Promise.all([refreshRequests(), refreshAllocations(), refreshMessages()])
   } catch (cause) {
     if (cause instanceof ApiError && cause.fieldError?.message) {
@@ -304,7 +306,11 @@ onMounted(() => {
         <p v-if="fieldError?.field === 'durationHours'" id="duration-error" class="error" role="alert">
           {{ fieldError.message }}
         </p>
-        <button type="submit">{{ submitting ? '正在提交…' : '提交普通申请' }}</button>
+        <label>
+          <input v-model="isEmergency" type="checkbox" name="emergency" />
+          紧急申请（审核前按普通规则排队，批准后尚在等待的卡进入已批准紧急优先级组）
+        </label>
+        <button type="submit">{{ submitting ? '正在提交…' : (isEmergency ? '提交紧急申请' : '提交普通申请') }}</button>
       </fieldset>
     </form>
     <p v-if="submitFailure" class="error" role="alert">{{ submitFailure }}</p>
@@ -396,6 +402,21 @@ onMounted(() => {
           <dt>接收序号</dt><dd>{{ request.receiveSeq }}</dd>
           <dt>提交时间</dt><dd><time :datetime="request.submittedAt">{{ formatTime(request.submittedAt) }}</time></dd>
           <dt>预计时长</dt><dd>{{ request.durationHours }} 小时</dd>
+          <template v-if="request.requestType === 'EMERGENCY'">
+            <dt>紧急审核</dt>
+            <dd>
+              {{
+                request.emergencyStatus === 'PENDING'
+                  ? '紧急待审核（审核前按普通队列参与排序与分配）'
+                  : request.emergencyStatus === 'APPROVED'
+                    ? '紧急已批准'
+                    : '紧急已拒绝（保留原普通队列顺序）'
+              }}
+              <template v-if="request.emergencyReviewReason">
+                ｜理由：{{ request.emergencyReviewReason }}
+              </template>
+            </dd>
+          </template>
         </dl>
         <ul class="waiting-items">
           <li v-for="item in request.queueItems" :key="item.id">
@@ -448,11 +469,19 @@ onMounted(() => {
           </dd>
           <dt>消息编号</dt><dd>{{ message.id }}</dd>
           <dt>转换序号</dt><dd>{{ message.transitionSeq }}</dd>
-          <dt>指定 GPU</dt><dd>GPU {{ message.gpuId }}</dd>
+          <template v-if="message.gpuId">
+            <dt>指定 GPU</dt><dd>GPU {{ message.gpuId }}</dd>
+          </template>
           <dt>申请编号</dt><dd>{{ message.requestId }}</dd>
-          <dt>名额编号</dt><dd>{{ message.allocationId }}</dd>
-          <dt>分配时间</dt><dd><time :datetime="message.allocatedAt">{{ formatTime(message.allocatedAt) }}</time></dd>
-          <dt>到期时间</dt><dd><time :datetime="message.expiresAt">{{ formatTime(message.expiresAt) }}</time></dd>
+          <template v-if="message.allocationId">
+            <dt>名额编号</dt><dd>{{ message.allocationId }}</dd>
+          </template>
+          <template v-if="message.allocatedAt">
+            <dt>分配时间</dt><dd><time :datetime="message.allocatedAt">{{ formatTime(message.allocatedAt) }}</time></dd>
+          </template>
+          <template v-if="message.expiresAt">
+            <dt>到期时间</dt><dd><time :datetime="message.expiresAt">{{ formatTime(message.expiresAt) }}</time></dd>
+          </template>
           <dt>通知时间</dt><dd><time :datetime="message.createdAt">{{ formatTime(message.createdAt) }}</time></dd>
         </dl>
         <div v-if="!message.readAt">

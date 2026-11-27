@@ -59,7 +59,8 @@ public class AllocationRepository {
                        qi.gpu_id,
                        r.duration_hours,
                        r.submitted_at,
-                       r.receive_seq
+                       r.receive_seq,
+                       (r.request_type = 'EMERGENCY' AND r.emergency_status = 'APPROVED') AS approved_emergency
                 FROM queue_items qi
                 JOIN requests r ON r.id = qi.request_id
                 WHERE qi.gpu_id = :gpuId AND qi.status = 'WAITING'
@@ -72,7 +73,8 @@ public class AllocationRepository {
                         row.getInt("gpu_id"),
                         row.getInt("duration_hours"),
                         row.getObject("submitted_at", OffsetDateTime.class).toInstant(),
-                        row.getLong("receive_seq")))
+                        row.getLong("receive_seq"),
+                        row.getBoolean("approved_emergency")))
                 .list();
     }
 
@@ -534,7 +536,8 @@ public class AllocationRepository {
                        qi.gpu_id,
                        r.duration_hours,
                        r.submitted_at,
-                       r.receive_seq
+                       r.receive_seq,
+                       (r.request_type = 'EMERGENCY' AND r.emergency_status = 'APPROVED') AS approved_emergency
                 FROM queue_items qi
                 JOIN requests r ON r.id = qi.request_id
                 JOIN accounts acc ON acc.id = r.member_id
@@ -549,9 +552,61 @@ public class AllocationRepository {
                                 row.getInt("gpu_id"),
                                 row.getInt("duration_hours"),
                                 row.getObject("submitted_at", OffsetDateTime.class).toInstant(),
-                                row.getLong("receive_seq")),
+                                row.getLong("receive_seq"),
+                                row.getBoolean("approved_emergency")),
                         row.getString("member_name")))
                 .list();
+    }
+
+    long insertRequestAudit(UUID adminId, Instant occurredAt, String action, UUID requestId,
+                            String reason, String beforeState, String afterState) {
+        var keyHolder = new GeneratedKeyHolder();
+        jdbc.sql("""
+                INSERT INTO audit_logs (
+                    occurred_at, actor_type, actor_account_id, action,
+                    request_id, queue_item_id, allocation_id, gpu_id,
+                    reason, before_state, after_state
+                ) VALUES (
+                    :occurredAt, 'ADMIN', :actorAccountId, :action,
+                    :requestId, NULL, NULL, NULL,
+                    :reason, :beforeState, :afterState
+                )
+                """)
+                .param("occurredAt", occurredAt.atOffset(ZoneOffset.UTC))
+                .param("actorAccountId", adminId)
+                .param("action", action)
+                .param("requestId", requestId)
+                .param("reason", reason)
+                .param("beforeState", beforeState)
+                .param("afterState", afterState)
+                .update(keyHolder, "transition_seq");
+        Number seq = keyHolder.getKey();
+        if (seq == null) {
+            throw new DataIntegrityViolationException("Failed to obtain audit transition_seq.");
+        }
+        return seq.longValue();
+    }
+
+    void insertRequestInboxMessage(UUID recipientId, long transitionSeq, UUID requestId,
+                                   String messageType, String title, String body, Instant createdAt) {
+        jdbc.sql("""
+                INSERT INTO inbox_messages (
+                    id, recipient_id, transition_seq, allocation_id, request_id, gpu_id,
+                    message_type, title, body, created_at
+                ) VALUES (
+                    :id, :recipientId, :transitionSeq, NULL, :requestId, NULL,
+                    :messageType, :title, :body, :createdAt
+                )
+                """)
+                .param("id", UUID.randomUUID())
+                .param("recipientId", recipientId)
+                .param("transitionSeq", transitionSeq)
+                .param("requestId", requestId)
+                .param("messageType", messageType)
+                .param("title", title)
+                .param("body", body)
+                .param("createdAt", createdAt.atOffset(ZoneOffset.UTC))
+                .update();
     }
 
     boolean markMessageRead(UUID memberId, UUID messageId, Instant readAt) {
@@ -582,7 +637,7 @@ public class AllocationRepository {
                        m.created_at,
                        m.read_at
                 FROM inbox_messages m
-                JOIN allocations a ON a.id = m.allocation_id AND a.gpu_id = m.gpu_id
+                LEFT JOIN allocations a ON a.id = m.allocation_id AND a.gpu_id = m.gpu_id
                 WHERE m.recipient_id = :memberId
                 ORDER BY m.transition_seq DESC
                 """)
@@ -606,7 +661,7 @@ public class AllocationRepository {
                        m.created_at,
                        m.read_at
                 FROM inbox_messages m
-                JOIN allocations a ON a.id = m.allocation_id AND a.gpu_id = m.gpu_id
+                LEFT JOIN allocations a ON a.id = m.allocation_id AND a.gpu_id = m.gpu_id
                 WHERE m.recipient_id = :memberId AND m.id = :messageId
                 """)
                 .param("memberId", memberId)
@@ -647,6 +702,8 @@ public class AllocationRepository {
     }
 
     private InboxMessageView readMessage(ResultSet row, int index) throws SQLException {
+        OffsetDateTime rawAllocatedAt = row.getObject("allocated_at", OffsetDateTime.class);
+        OffsetDateTime rawExpiresAt = row.getObject("expires_at", OffsetDateTime.class);
         OffsetDateTime rawReadAt = row.getObject("read_at", OffsetDateTime.class);
         return new InboxMessageView(
                 row.getString("id"),
@@ -657,8 +714,8 @@ public class AllocationRepository {
                 row.getString("gpu_id"),
                 row.getString("title"),
                 row.getString("body"),
-                row.getObject("allocated_at", OffsetDateTime.class).toInstant(),
-                row.getObject("expires_at", OffsetDateTime.class).toInstant(),
+                rawAllocatedAt != null ? rawAllocatedAt.toInstant() : null,
+                rawExpiresAt != null ? rawExpiresAt.toInstant() : null,
                 row.getObject("created_at", OffsetDateTime.class).toInstant(),
                 rawReadAt != null ? rawReadAt.toInstant() : null);
     }

@@ -253,14 +253,15 @@ class AllocationStartIntegrationTest {
         UUID reqId = UUID.randomUUID();
         UUID qiId = UUID.randomUUID();
         UUID allocId = UUID.randomUUID();
+        Instant allocTime = Instant.now().truncatedTo(java.time.temporal.ChronoUnit.SECONDS);
         externalJdbc.sql("INSERT INTO requests (id, member_id, submitted_at, duration_hours) VALUES (:id, :m, :t, 12)")
-                .param("id", reqId).param("m", MEMBER_A).param("t", BASE_TIME.atOffset(ZoneOffset.UTC)).update();
+                .param("id", reqId).param("m", MEMBER_A).param("t", allocTime.atOffset(ZoneOffset.UTC)).update();
         externalJdbc.sql("INSERT INTO queue_items (id, request_id, gpu_id, status) VALUES (:id, :r, 7, 'ALLOCATED')")
                 .param("id", qiId).param("r", reqId).update();
         externalJdbc.sql("INSERT INTO allocations (id, queue_item_id, gpu_id, allocated_at, expires_at) VALUES (:id, :q, 7, :a, :e)")
                 .param("id", allocId).param("q", qiId)
-                .param("a", BASE_TIME.atOffset(ZoneOffset.UTC))
-                .param("e", BASE_TIME.plus(Duration.ofHours(12)).atOffset(ZoneOffset.UTC)).update();
+                .param("a", allocTime.atOffset(ZoneOffset.UTC))
+                .param("e", allocTime.plus(Duration.ofHours(12)).atOffset(ZoneOffset.UTC)).update();
         externalJdbc.sql("INSERT INTO current_allocations (gpu_id, allocation_id) VALUES (7, :a)")
                 .param("a", allocId).update();
 
@@ -277,7 +278,7 @@ class AllocationStartIntegrationTest {
             assertThat(result.alreadyStarted()).isFalse();
             assertThat(result.allocation().status()).isEqualTo("IN_USE");
             assertThat(result.allocation().startedAt()).isNotNull();
-            assertThat(result.allocation().expiresAt()).isEqualTo(BASE_TIME.plus(Duration.ofHours(12)));
+            assertThat(result.allocation().expiresAt()).isEqualTo(allocTime.plus(Duration.ofHours(12)));
         }
     }
 

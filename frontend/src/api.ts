@@ -37,6 +37,29 @@ export interface OrdinaryRequest {
   receiveSeq: string
   durationHours: number
   queueItems: QueueItem[]
+  requestType?: 'ORDINARY' | 'EMERGENCY'
+  emergencyStatus?: 'PENDING' | 'APPROVED' | 'REJECTED'
+  emergencyReviewedAt?: string
+  emergencyReviewReason?: string
+}
+
+export interface AdminEmergencyRequest {
+  id: string
+  memberId: string
+  memberName: string
+  submittedAt: string
+  receiveSeq: string
+  durationHours: number
+  requestType: 'EMERGENCY'
+  emergencyStatus: 'PENDING' | 'APPROVED' | 'REJECTED'
+  emergencyReviewedAt?: string
+  emergencyReviewReason?: string
+  queueItems: QueueItem[]
+}
+
+export interface EmergencyReviewResult {
+  request: AdminEmergencyRequest
+  alreadyReviewed: boolean
 }
 
 export interface Allocation {
@@ -67,14 +90,14 @@ export interface ReturnAllocationResult {
 export interface InboxMessage {
   id: string
   transitionSeq: string
-  type: 'ALLOCATED' | 'UNSTARTED_EXPIRED' | 'ANOMALY' | 'OVERDUE' | 'VERIFIED_RELEASED'
+  type: 'ALLOCATED' | 'UNSTARTED_EXPIRED' | 'ANOMALY' | 'OVERDUE' | 'VERIFIED_RELEASED' | 'EMERGENCY_APPROVED' | 'EMERGENCY_REJECTED'
   requestId: string
-  allocationId: string
-  gpuId: string
+  allocationId?: string
+  gpuId?: string
   title: string
   body: string
-  allocatedAt: string
-  expiresAt: string
+  allocatedAt?: string
+  expiresAt?: string
   createdAt: string
   readAt?: string
 }
@@ -167,9 +190,16 @@ export async function confirmReturnAllocation(allocationId: string): Promise<Ret
   return response.json()
 }
 
-export async function submitOrdinaryRequest(gpuIds: string[], durationHours: string): Promise<OrdinaryRequest> {
+export async function submitOrdinaryRequest(
+  gpuIds: string[],
+  durationHours: string,
+  emergency = false,
+): Promise<OrdinaryRequest> {
   const body = new URLSearchParams({ durationHours })
   gpuIds.forEach(id => body.append('gpuIds', id))
+  if (emergency) {
+    body.append('emergency', 'true')
+  }
   const response = await post('requests', body)
   return response.json()
 }
@@ -221,6 +251,21 @@ export async function submitAdminVerifiedRelease(
     reason,
   })
   const response = await post(`admin/allocations/${encodeURIComponent(allocationId)}/verified-release`, body)
+  return response.json()
+}
+
+export async function getPendingEmergencyRequests(): Promise<AdminEmergencyRequest[]> {
+  const response = await request('admin/requests/emergency-pending')
+  return response.json()
+}
+
+export async function reviewEmergencyRequest(
+  requestId: string,
+  decision: 'APPROVE' | 'REJECT',
+  reason: string,
+): Promise<EmergencyReviewResult> {
+  const body = new URLSearchParams({ decision, reason })
+  const response = await post(`admin/requests/${encodeURIComponent(requestId)}/emergency-review`, body)
   return response.json()
 }
 

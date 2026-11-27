@@ -21,7 +21,8 @@
 | **Story 2.6：管理员核实异常或逾期后释放名额** | `done` | 已由 PR #8（`2153e74`）合入 `main`。交付 `V8__admin_verified_release.sql`、`GET /api/admin/allocations/pending-verification` 与 `POST /api/admin/allocations/{id}/verified-release`（仅 `ADMIN`、非空理由、`seenStatus` 冲突 `409`、同事务审计/通知与后继交接）及管理员前端面板 `AdminVerifiedRelease.vue`。证据见 [story-2.6.md](_bmad-output/implementation-artifacts/evidence/story-2.6.md)。 |
 | **Story 2.7：成员查看各 GPU 的公开等待队列** | `done` | 已由 PR #8（`2153e74`）合入 `main`。交付 `GET /api/queues`（复用 `QueueOrderingPolicy`，严格仅返回 `position` 与 `memberName` 两字段）及前端 `PublicQueues.vue`。证据见 [story-2.7.md](_bmad-output/implementation-artifacts/evidence/story-2.7.md)。 |
 | **Story 2.8：成员查看站内消息并标记已读** | `done` | 已由 PR #8（`2153e74`）合入 `main`。交付 `V9__inbox_read_at.sql`、`POST /api/messages/{id}/read`（仅限本人 `MEMBER` + CSRF，显式标记已读且重复调用幂等保留首次 `read_at`）及前端未读/已读状态与逐条“标记已读”按钮；全量 40 项独立 H2 集成测试通过。证据见 [story-2.8.md](_bmad-output/implementation-artifacts/evidence/story-2.8.md)。 |
-| **Epic 3（Story 3.1–3.9）** | `backlog` | 管理员紧急审核、人工调序、续期审核、直接延期、代归还、主动撤销、干预历史追溯、备份恢复演练及课程实验 A 准备。 |
+| **Story 3.1：成员提交紧急申请并由管理员审核** | `review` | 已在分支 `codex/story-3-1` 完成实现与验证：交付 `V10__emergency_requests.sql`、三层优先级排序（`>72h` > 已批准紧急 > 普通）、`GET /api/admin/requests/emergency-pending`、`POST /api/admin/requests/{id}/emergency-review` 及前端紧急申请表单与 `AdminEmergencyReview.vue`；全量 42 项独立 H2 集成测试通过，待推送合并。证据见 [story-3.1.md](_bmad-output/implementation-artifacts/evidence/story-3.1.md)。 |
+| **Epic 3 剩余故事（Story 3.2–3.9）** | `backlog` | 人工调序、续期审核、直接延期、代归还、主动撤销、干预历史追溯、备份恢复演练及课程实验 A 准备。 |
 
 ## 下一步（供接续组员直接开始）
 

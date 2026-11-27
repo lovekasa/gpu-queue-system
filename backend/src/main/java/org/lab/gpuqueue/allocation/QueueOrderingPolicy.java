@@ -19,11 +19,17 @@ public class QueueOrderingPolicy {
 
     public List<WaitingCandidate> order(List<WaitingCandidate> candidates, Instant evaluationTime) {
         Comparator<WaitingCandidate> comparator = Comparator
-                .<WaitingCandidate>comparingInt(candidate ->
-                        isBoostedOver72Hours(candidate.submittedAt(), evaluationTime) ? 0 : 1)
+                .<WaitingCandidate>comparingInt(candidate -> priorityGroup(candidate, evaluationTime))
                 .thenComparing(WaitingCandidate::submittedAt)
                 .thenComparingLong(WaitingCandidate::receiveSeq);
         return candidates.stream().sorted(comparator).toList();
+    }
+
+    private int priorityGroup(WaitingCandidate candidate, Instant evaluationTime) {
+        if (isBoostedOver72Hours(candidate.submittedAt(), evaluationTime)) {
+            return 0;
+        }
+        return candidate.approvedEmergency() ? 1 : 2;
     }
 
     public Optional<WaitingCandidate> selectNext(List<WaitingCandidate> candidates, Instant evaluationTime) {
@@ -37,6 +43,18 @@ public class QueueOrderingPolicy {
             int gpuId,
             int durationHours,
             Instant submittedAt,
-            long receiveSeq
-    ) {}
+            long receiveSeq,
+            boolean approvedEmergency
+    ) {
+        public WaitingCandidate(
+                UUID queueItemId,
+                UUID requestId,
+                UUID memberId,
+                int gpuId,
+                int durationHours,
+                Instant submittedAt,
+                long receiveSeq) {
+            this(queueItemId, requestId, memberId, gpuId, durationHours, submittedAt, receiveSeq, false);
+        }
+    }
 }

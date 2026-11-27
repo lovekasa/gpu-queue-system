@@ -6,7 +6,9 @@ import java.util.UUID;
 
 import jakarta.servlet.http.HttpServletRequest;
 import org.lab.gpuqueue.allocation.AllocationRepository.PendingVerificationView;
+import org.lab.gpuqueue.allocation.AllocationService.EmergencyReviewResult;
 import org.lab.gpuqueue.allocation.AllocationService.VerifiedReleaseResult;
+import org.lab.gpuqueue.allocation.RequestRepository.AdminEmergencyRequestView;
 import org.lab.gpuqueue.security.AccountPrincipal;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -55,6 +57,31 @@ class AdminAllocationController {
         String reason = form.getFirst("reason");
         return allocations.adminVerifiedRelease(
                         UUID.fromString(principal.id()), allocationId, seenStatus, verified, reason)
+                .map(ResponseEntity::ok)
+                .orElseGet(() -> ResponseEntity.notFound().build());
+    }
+
+    @GetMapping("/api/admin/requests/emergency-pending")
+    ResponseEntity<List<AdminEmergencyRequestView>> listPendingEmergencyRequests() {
+        return ResponseEntity.ok(allocations.listPendingEmergencyRequests());
+    }
+
+    @PostMapping(path = "/api/admin/requests/{id}/emergency-review",
+            consumes = MediaType.APPLICATION_FORM_URLENCODED_VALUE)
+    ResponseEntity<EmergencyReviewResult> reviewEmergencyRequest(
+            @AuthenticationPrincipal AccountPrincipal principal,
+            @PathVariable String id,
+            @RequestBody MultiValueMap<String, String> form) {
+        UUID requestId;
+        try {
+            requestId = UUID.fromString(id);
+        } catch (IllegalArgumentException exception) {
+            return ResponseEntity.notFound().build();
+        }
+        String decision = form.getFirst("decision");
+        String reason = form.getFirst("reason");
+        return allocations.reviewEmergencyRequest(
+                        UUID.fromString(principal.id()), requestId, decision, reason)
                 .map(ResponseEntity::ok)
                 .orElseGet(() -> ResponseEntity.notFound().build());
     }

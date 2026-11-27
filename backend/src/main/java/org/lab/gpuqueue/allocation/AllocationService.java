@@ -40,6 +40,11 @@ public class AllocationService {
     // All queue and quota writes enter here; returning from the proxy commits or rolls back atomically.
     @Transactional(rollbackFor = Exception.class)
     public RequestView submitOrdinaryRequest(UUID memberId, List<String> rawGpuIds, String rawDurationHours) {
+        return submitOrdinaryRequest(memberId, rawGpuIds, rawDurationHours, false);
+    }
+
+    @Transactional(rollbackFor = Exception.class)
+    public RequestView submitOrdinaryRequest(UUID memberId, List<String> rawGpuIds, String rawDurationHours, boolean emergency) {
         int durationHours = parseInteger(rawDurationHours, "durationHours", "预计时长须为 1 至 72 的整数小时。");
         if (durationHours < 1 || durationHours > 72) {
             throw new InvalidRequest("durationHours", "预计时长须为 1 至 72 的整数小时。");
@@ -63,12 +68,87 @@ public class AllocationService {
             }
         }
         Instant now = clock.instant();
-        UUID requestId = requests.create(memberId, now, durationHours, gpuIds);
+        UUID requestId = requests.create(memberId, now, durationHours, gpuIds, emergency);
         for (Integer gpuId : gpuIds) {
             allocateGpuIfIdle(gpuId, now);
         }
         return requests.findForMember(memberId, requestId)
                 .orElseThrow(() -> new DataIntegrityViolationException("Missing persisted request " + requestId));
+    }
+
+    public List<RequestRepository.AdminEmergencyRequestView> listPendingEmergencyRequests() {
+        return requests.listPendingEmergencyRequests();
+    }
+
+    @Transactional(rollbackFor = Exception.class)
+    public Optional<EmergencyReviewResult> reviewEmergencyRequest(UUID adminId, UUID requestId,
+                                                                  String rawDecision, String rawReason) {
+        String decision = rawDecision == null ? "" : rawDecision.strip().toUpperCase();
+        if (!"APPROVE".equals(decision) && !"REJECT".equals(decision)) {
+            throw new InvalidRequest("decision", "审核结论必须为 APPROVE 或 REJECT。");
+        }
+        String reason = rawReason == null ? "" : rawReason.strip();
+        if (reason.isEmpty()) {
+            throw new InvalidRequest("reason", "请填写非空审核理由。");
+        }
+        if (reason.length() > 500) {
+            throw new InvalidRequest("reason", "审核理由不能超过 500 个字符。");
+        }
+        var existingOpt = requests.findAdminEmergencyRequest(requestId);
+        if (existingOpt.isEmpty()) {
+            return Optional.empty();
+        }
+        var existing = existingOpt.get();
+        String targetStatus = "APPROVE".equals(decision) ? "APPROVED" : "REJECTED";
+        if (!"PENDING".equals(existing.emergencyStatus())) {
+            if (targetStatus.equals(existing.emergencyStatus())) {
+                return Optional.of(new EmergencyReviewResult(existing, true));
+            }
+            throw new StatusConflict("该紧急申请已有相反审核结论（" + existing.emergencyStatus() + "），不可反向改判。");
+        }
+
+        // Lock requested GPUs in ascending order so waiting/allocated snapshot is consistent with concurrent allocations.
+        List<Integer> gpuIds = existing.queueItems().stream()
+                .map(item -> Integer.parseInt(item.gpuId()))
+                .sorted()
+                .toList();
+        for (Integer gpuId : gpuIds) {
+            allocations.lockGpu(gpuId);
+        }
+
+        // Re-read inside lock
+        var locked = requests.findAdminEmergencyRequest(requestId).orElseThrow();
+        if (!"PENDING".equals(locked.emergencyStatus())) {
+            if (targetStatus.equals(locked.emergencyStatus())) {
+                return Optional.of(new EmergencyReviewResult(locked, true));
+            }
+            throw new StatusConflict("该紧急申请已有相反审核结论（" + locked.emergencyStatus() + "），不可反向改判。");
+        }
+
+        Instant now = clock.instant();
+        int updated = requests.updateEmergencyReview(requestId, targetStatus, adminId, now, reason);
+        if (updated != 1) {
+            throw new DataIntegrityViolationException("Failed to update emergency review for request " + requestId);
+        }
+
+        long waitingCount = locked.queueItems().stream().filter(i -> "WAITING".equals(i.status())).count();
+        long allocatedCount = locked.queueItems().size() - waitingCount;
+        String action = "APPROVED".equals(targetStatus) ? "EMERGENCY_APPROVED" : "EMERGENCY_REJECTED";
+        String beforeState = "EMERGENCY_PENDING(waiting=" + waitingCount + ",allocated=" + allocatedCount + ")";
+        String afterState = "EMERGENCY_" + targetStatus + "(waiting=" + waitingCount + ",allocated=" + allocatedCount + ")";
+        long transitionSeq = allocations.insertRequestAudit(
+                adminId, now, action, requestId, reason, beforeState, afterState);
+
+        String title = "APPROVED".equals(targetStatus) ? "紧急申请已批准" : "紧急申请未获批准";
+        String body = "APPROVED".equals(targetStatus)
+                ? "您的紧急申请 " + requestId + " 已获管理员批准，尚在等待的 GPU 将按原提交时间进入已批准紧急优先级组。理由：" + reason
+                : "您的紧急申请 " + requestId + " 未获紧急待遇批准，尚在等待的 GPU 将保留原提交时间继续按普通规则排队，已获配名额不受影响。理由：" + reason;
+        allocations.insertRequestInboxMessage(
+                UUID.fromString(locked.memberId()), transitionSeq, requestId, action, title, body, now);
+
+        var refreshed = requests.findAdminEmergencyRequest(requestId)
+                .orElseThrow(() -> new DataIntegrityViolationException("Missing reviewed emergency request " + requestId));
+        return Optional.of(new EmergencyReviewResult(refreshed, false));
     }
 
     @Transactional(rollbackFor = Exception.class)
@@ -449,6 +529,8 @@ public class AllocationService {
                                         String endReason, boolean alreadyEnded) {}
 
     public record MarkMessageReadResult(InboxMessageView message, boolean alreadyRead) {}
+
+    public record EmergencyReviewResult(RequestRepository.AdminEmergencyRequestView request, boolean alreadyReviewed) {}
 
     static class StatusConflict extends RuntimeException {
         StatusConflict(String message) {

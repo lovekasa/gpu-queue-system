@@ -34,9 +34,11 @@ public class SecurityConfiguration {
                         .requestMatchers(HttpMethod.GET, "/api/me", "/api/gpus", "/api/queues").hasAnyRole("ADMIN", "MEMBER")
                         .requestMatchers(HttpMethod.POST,
                                 "/api/admin/members",
-                                "/api/admin/allocations/*/verified-release").hasRole("ADMIN")
+                                "/api/admin/allocations/*/verified-release",
+                                "/api/admin/requests/*/emergency-review").hasRole("ADMIN")
                         .requestMatchers(HttpMethod.GET,
-                                "/api/admin/allocations/pending-verification").hasRole("ADMIN")
+                                "/api/admin/allocations/pending-verification",
+                                "/api/admin/requests/emergency-pending").hasRole("ADMIN")
                         .requestMatchers(HttpMethod.POST,
                                 "/api/requests",
                                 "/api/allocations/*/start",

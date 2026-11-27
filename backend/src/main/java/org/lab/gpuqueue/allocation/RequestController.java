@@ -26,7 +26,7 @@ import org.springframework.web.bind.annotation.RestController;
 @RestController
 class RequestController {
     private static final Logger log = LoggerFactory.getLogger(RequestController.class);
-    private static final Set<String> INPUT_FIELDS = Set.of("gpuIds", "durationHours");
+    private static final Set<String> INPUT_FIELDS = Set.of("gpuIds", "durationHours", "emergency");
     private final AllocationService allocations;
 
     RequestController(AllocationService allocations) {
@@ -44,8 +44,21 @@ class RequestController {
         if (form.get("durationHours") == null || form.get("durationHours").size() != 1) {
             return ResponseEntity.badRequest().body(new FieldError("durationHours", "请填写一个 1 至 72 的整数小时。"));
         }
+        boolean emergency = false;
+        if (form.containsKey("emergency")) {
+            var values = form.get("emergency");
+            if (values == null || values.size() != 1) {
+                return ResponseEntity.badRequest().body(new FieldError("emergency", "紧急申请参数无效。"));
+            }
+            String raw = values.get(0);
+            if ("true".equalsIgnoreCase(raw)) {
+                emergency = true;
+            } else if (!"false".equalsIgnoreCase(raw)) {
+                return ResponseEntity.badRequest().body(new FieldError("emergency", "紧急申请参数必须为 true 或 false。"));
+            }
+        }
         var created = allocations.submitOrdinaryRequest(UUID.fromString(principal.id()),
-                form.get("gpuIds"), form.getFirst("durationHours"));
+                form.get("gpuIds"), form.getFirst("durationHours"), emergency);
         return ResponseEntity.created(URI.create("/api/requests/" + created.id())).body(created);
     }
 
